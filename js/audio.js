@@ -88,7 +88,7 @@ function setParam(g, param, value, instant) {
 }
 
 function applyMaster(g, song, instant) {
-  const m = song.master;
+  const m = App.project.style.mix; // the master chain is shared by every score in the game
   setParam(g, g.low.gain, m.low, instant);
   setParam(g, g.mid.gain, m.mid, instant);
   setParam(g, g.high.gain, m.high, instant);
@@ -390,24 +390,26 @@ function scheduleStep(g, song, pat, local, time, stepDur) {
     if (t.type === 'drum') {
       n.input.__id = t.id;
       const grid = pat.drums[t.id];
-      if (!grid) continue;
+      const s = snd(t);
+      if (!grid || !s) continue;
       const st = time + (local % 2 === 1 ? swingOff : 0);
       for (const v of DRUM_VOICES) {
         const vel = grid[v.id] && grid[v.id][local];
         if (vel > 0) {
-          const vs = t.voices[v.id];
-          playDrum(g, n.input, v.id, st, vel, t.kit, vs, vs && vs.sample ? App.sampleBuffer(vs.sample) : null);
+          const vs = s.voices[v.id];
+          playDrum(g, n.input, v.id, st, vel, s.kit, vs, vs && vs.sample ? App.sampleBuffer(vs.sample) : null);
         }
       }
     } else {
       const notes = pat.notes[t.id];
-      if (!notes) continue;
+      const s = snd(t);
+      if (!notes || !s) continue;
       for (const nt of notes) {
         if (Math.floor(nt.s + 1e-6) !== local) continue;
         const isOdd = Math.abs(nt.s - Math.round(nt.s)) < 1e-6 && Math.round(nt.s) % 2 === 1;
         const st = time + (nt.s - local) * stepDur + (isOdd ? swingOff : 0);
         const dur = nt.l * stepDur;
-        synthVoice(g.ctx, n.input, t.synth, nt.p, nt.v, st, dur).release(st + dur);
+        synthVoice(g.ctx, n.input, s.synth, nt.p, nt.v, st, dur).release(st + dur);
       }
     }
   }

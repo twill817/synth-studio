@@ -200,3 +200,38 @@ fieldset label { color: var(--text); }
 /* Toast with an action button (e.g. Undo) */
 .toast.has-action { pointer-events: auto; display: flex; align-items: center; gap: 12px; }
 .toast.has-action button { padding: 2px 10px; background: var(--accent); border-color: var(--accent); color: #0b1a26; font-weight: 600; }
+
+/* Game style vs. level scope */
+.scope { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+.scope.style { background: #1f3346; color: #8cc8f5; }
+.scope.level { background: #3d2f17; color: #ffc46b; }
+.scope-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; font-size: 11px; }
+.scope-bar button { font-size: 11px; padding: 2px 8px; }
+.flavor { color: #ffc46b; font-size: 11px; flex: none; }
+.strip .scope { align-self: flex-start; }
+
+/* Scores list */
+.score-item { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; margin-bottom: 3px; }
+.score-item:hover { background: var(--panel2); }
+.score-item.sel { background: var(--panel2); border-color: var(--accent2); }
+.score-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-item:hover .edit { opacity: 1; }
+
+/* Game Style tab */
+.style-panel { overflow: auto; flex: 1; padding: 0 12px 16px; }
+.style-sec { max-width: 760px; }
+.style-sec p { margin: 4px 0 10px; line-height: 1.45; }
+.role-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.role-row { display: grid; grid-template-columns: 12px minmax(90px, 1fr) 20px 130px 1fr 22px; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; background: #1a1d23; }
+.role-row:hover { background: var(--panel2); }
+.role-row:hover .edit { opacity: 1; }
+.role-row.sel { border-color: var(--accent); background: var(--panel2); }
+.role-row .dot { width: 10px; height: 10px; border-radius: 50%; }
+.role-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-row .snd { color: var(--text); font-size: 12px; }
+.role-row .use { font-size: 11px; }
+.add-role select { width: auto; }
+.wrap { flex-wrap: wrap; }
+
+/* The hidden attribute must win over component display rules (hide-unavailable-controls). */
+[hidden] { display: none !important; }

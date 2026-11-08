@@ -9,7 +9,7 @@
 <body>
 <header id="topbar">
   <div class="brand"><span class="logo">◆</span> Synth Studio</div>
-  <input id="songName" class="song-name" title="Song name" spellcheck="false">
+  <input id="songName" class="song-name" title="Game project name" spellcheck="false" aria-label="Game project name">
   <div class="transport">
     <button id="btnPlay" class="tbtn play" title="Play / Pause (Space)">▶</button>
     <button id="btnStop" class="tbtn" title="Stop (Enter)">■</button>
@@ -40,13 +40,20 @@
 <main>
   <aside id="sidebar">
     <section>
+      <h3>Scores</h3>
+      <div id="scoreList"></div>
+      <div class="row gap">
+        <button id="btnAddScore" title="New score using the game style's roles and defaults">+ New</button>
+        <button id="btnDupScore">Duplicate</button>
+      </div>
+    </section>
+    <section>
       <h3>Tracks</h3>
       <div id="trackList"></div>
       <div class="row gap">
-        <select id="addTrackPreset" title="Instrument for new track"></select>
+        <select id="addTrackPreset" title="Role for the new track — or create a new role in the game style"></select>
         <button id="btnAddTrack">+ Track</button>
       </div>
-      <button id="btnAddDrum" class="ghost">+ Drum kit</button>
     </section>
     <section>
       <h3>Patterns</h3>
@@ -65,12 +72,14 @@
       <button data-view="roll">Piano Roll</button>
       <button data-view="arrange">Arrange</button>
       <button data-view="mixer">Mixer &amp; FX</button>
+      <button data-view="style">Game Style</button>
     </nav>
 
     <div class="view on" id="view-beat">
       <div class="toolbar">
         <label>Drum track <select id="beatTrack"></select></label>
         <label>Kit <select id="beatKit"></select></label>
+        <span id="beatScope" class="scope style"></span>
         <label>Bars <select class="barsSel"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
         <label>Beat loop <select id="beatLoop"></select></label>
         <button id="btnBeatApply">Load</button>
@@ -129,6 +138,10 @@
 
     <div class="view" id="view-mixer">
       <div id="mixer" class="mixer"></div>
+    </div>
+
+    <div class="view" id="view-style">
+      <div id="stylePanel" class="style-panel"></div>
     </div>
   </section>
 </main>

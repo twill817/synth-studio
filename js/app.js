@@ -1,21 +1,64 @@
-/* App state, song model, undo/redo, persistence, samples, live playing & recording. */
+/* App state: game project (Style + scores), undo/redo, persistence, samples, live playing & recording.
+
+   Project model
+   -------------
+   project = { name, style, scores[], current }
+   style   = { key, scale, bpm,           // defaults for new scores
+               roles[],                   // the game's instrument roster, shared by every score
+               mix }                      // master chain, shared by every score
+   role    = { id, name, color, type:'synth', preset, synth } | { id, name, color, type:'drum', kit, voices }
+   score   = { id, name, bpm, swing, key, scale, tracks[], patterns[], arrangement[] }
+   track   = { id, name, role, type, color, vol, pan, mute, solo, drive, tone, rev, dly,
+               sound }                    // null = use the role's sound; otherwise a per-score override
+                                          // ({preset, synth} or {kit, voices}) — the level's "flavor"
+*/
 
 const uid = () => Math.random().toString(36).slice(2, 9);
-const TRACK_COLORS = ['#ff6b6b', '#ffa94d', '#ffd43b', '#69db7c', '#38d9a9', '#4dabf7', '#748ffc', '#da77f2', '#f783ac', '#a9e34b'];
+const ROLE_COLORS = ['#ff6b6b', '#38d9a9', '#4dabf7', '#748ffc', '#da77f2', '#ffa94d', '#ffd43b', '#69db7c', '#f783ac', '#a9e34b'];
+const DEFAULT_MIX = { vol: 0.9, low: 0, mid: 0, high: 0, comp: -14, revSize: 2.4, revLevel: 0.9, dlyDiv: '1/8 dotted', dlyFb: 0.35 };
+const clone = (o) => JSON.parse(JSON.stringify(o));
 
-function makeDrumTrack(name = 'Drums') {
+function defaultVoices() {
   const voices = {};
   DRUM_VOICES.forEach((v) => (voices[v.id] = { level: 1, tune: 0, decay: 1, pan: 0, sample: null }));
   voices.chh.level = 0.7; voices.ohh.level = 0.6; voices.crash.level = 0.6; voices.cow.level = 0.6;
-  return { id: uid(), name, type: 'drum', color: '#ff6b6b', kit: 'classic', voices, vol: 0.85, pan: 0, mute: false, solo: false, drive: 0, tone: 20000, rev: 0.08, dly: 0 };
+  return voices;
 }
-function makeSynthTrack(preset = 'piano', name) {
-  const p = SYNTH_PRESETS[preset];
-  const n = App.song ? App.song.tracks.length : 0;
-  return { id: uid(), name: name || p.name, type: 'synth', color: TRACK_COLORS[(n + 3) % TRACK_COLORS.length], preset, synth: { ...p },
-    vol: 0.75, pan: 0, mute: false, solo: false, drive: 0, tone: 20000, rev: preset === 'pad' || preset === 'strings' ? 0.35 : 0.18, dly: preset === 'pluck' || preset === 'lead' ? 0.2 : 0.05 };
+
+/* ---------- roles & sounds ---------- */
+function uniqueRoleName(name, style = App.project.style) {
+  let n = name, k = 2;
+  while (style.roles.some((r) => r.name === n)) n = `${name} ${k++}`;
+  return n;
+}
+function makeRole(kind, name, style = App.project.style) {
+  const color = ROLE_COLORS[style.roles.length % ROLE_COLORS.length];
+  if (kind === 'drum') return { id: uid(), name: uniqueRoleName(name || 'Drums', style), color, type: 'drum', kit: 'classic', voices: defaultVoices() };
+  const p = SYNTH_PRESETS[kind] || SYNTH_PRESETS.piano;
+  return { id: uid(), name: uniqueRoleName(name || p.name, style), color, type: 'synth', preset: kind, synth: { ...p } };
+}
+function roleOf(t) { return App.project.style.roles.find((r) => r.id === t.role); }
+/* The sound a track actually plays: its per-score override, else its role. Edits go to this object. */
+function snd(t) { return t.sound || roleOf(t); }
+function soundFields(src) {
+  return src.type === 'drum' || src.kit ? { kit: src.kit, voices: clone(src.voices) } : { preset: src.preset, synth: clone(src.synth) };
+}
+function soundName(s) {
+  if (!s) return '';
+  return s.kit ? (DRUM_KITS[s.kit] || {}).name || 'Drum kit' : (SYNTH_PRESETS[s.preset] || {}).name || 'Synth';
+}
+
+function makeTrack(role, name) {
+  const pre = role.preset || '';
+  return { id: uid(), name: name || role.name, role: role.id, type: role.type, color: role.color, sound: null,
+    vol: role.type === 'drum' ? 0.85 : 0.75, pan: 0, mute: false, solo: false, drive: 0, tone: 20000,
+    rev: role.type === 'drum' ? 0.08 : pre === 'pad' || pre === 'strings' ? 0.35 : 0.18,
+    dly: pre === 'pluck' || pre === 'lead' ? 0.2 : role.type === 'drum' ? 0 : 0.05 };
 }
 function makePattern(name, bars = 2) { return { id: uid(), name, bars, drums: {}, notes: {} }; }
+function makeScore(name, style = App.project.style) {
+  return { id: uid(), name, bpm: style.bpm, swing: 0, key: style.key, scale: style.scale, tracks: [], patterns: [], arrangement: [] };
+}
 
 function ensurePattern(pat, song = App.song) {
   const steps = pat.bars * 16;
@@ -39,39 +82,109 @@ function applyBeat(pat, trackId, beatName) {
   DRUM_VOICES.forEach((v) => (pat.drums[trackId][v.id] = parseBeatString(b[v.id], steps)));
 }
 
-function demoSong() {
-  const song = { version: 1, name: 'Untitled Song', bpm: 96, swing: 10, key: 9, scale: 'minor',
-    tracks: [], patterns: [], arrangement: [],
-    master: { vol: 0.9, low: 0, mid: 0, high: 0, comp: -14, revSize: 2.4, revLevel: 0.9, dlyDiv: '1/8 dotted', dlyFb: 0.35 } };
-  App.song = song;
-  const drums = makeDrumTrack(); song.tracks.push(drums);
-  const bass = makeSynthTrack('bass'); song.tracks.push(bass);
-  const keys = makeSynthTrack('epiano', 'Keys'); song.tracks.push(keys);
-  const pad = makeSynthTrack('pad'); pad.vol = 0.5; song.tracks.push(pad);
-  const lead = makeSynthTrack('pluck', 'Pluck'); lead.vol = 0.55; song.tracks.push(lead);
+/* Copy a score with fresh ids (tracks, patterns) so it stands on its own. */
+function duplicateScore(src, name) {
+  const s = clone(src);
+  s.id = uid(); s.name = name;
+  const map = {};
+  s.tracks.forEach((t) => { const n = uid(); map[t.id] = n; t.id = n; });
+  s.patterns.forEach((p) => {
+    p.id = uid();
+    const d = {}, n = {};
+    Object.keys(p.drums).forEach((k) => { if (map[k]) d[map[k]] = p.drums[k]; });
+    Object.keys(p.notes).forEach((k) => { if (map[k]) n[map[k]] = p.notes[k]; });
+    p.drums = d; p.notes = n;
+  });
+  return s;
+}
 
-  const gen = (name, bars, prog) => LOOP_GENERATORS[name]({ root: song.key, scale: song.scale, bars, prog });
+/* ---------- demo / blank projects ---------- */
+function baseStyle(key = 9, scale = 'minor', bpm = 96) {
+  const style = { key, scale, bpm, roles: [], mix: { ...DEFAULT_MIX } };
+  [['drum', 'Drums'], ['bass', 'Bass'], ['epiano', 'Keys'], ['pad', 'Pad'], ['pluck', 'Lead']].forEach(([k, n]) => style.roles.push(makeRole(k, n, style)));
+  return style;
+}
+function blankProject() {
+  const style = baseStyle(0, 'minor', 110);
+  const score = makeScore('Level 1', style);
+  style.roles.forEach((r) => score.tracks.push(makeTrack(r)));
+  score.patterns.push(makePattern('Main', 2));
+  score.arrangement = [0];
+  ensureAll(score);
+  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [score], current: 0 };
+}
+function demoProject() {
+  const style = baseStyle(9, 'minor', 96);
+  const R = Object.fromEntries(style.roles.map((r) => [r.name, r]));
+  const gen = (s, name, bars, prog) => LOOP_GENERATORS[name]({ root: s.key, scale: s.scale, bars, prog });
+
+  // Level 1 — the game's home sound, straight from the Style.
+  const L1 = makeScore('Level 1 — Meadow', style);
+  L1.swing = 10;
+  const [d1, b1, k1, p1, l1] = ['Drums', 'Bass', 'Keys', 'Pad', 'Lead'].map((n) => makeTrack(R[n]));
+  p1.vol = 0.5; l1.vol = 0.55;
+  L1.tracks.push(d1, b1, k1, p1, l1);
   const A = makePattern('Verse', 2), B = makePattern('Chorus', 2), C = makePattern('Intro', 2);
-  [A, B, C].forEach((p) => { song.patterns.push(p); ensurePattern(p, song); });
-  applyBeat(A, drums.id, 'Boom Bap');
-  applyBeat(B, drums.id, 'Half-Time');
-  B.drums[drums.id].crash[0] = 0.8;
-  applyBeat(C, drums.id, 'Clear');
-  C.drums[drums.id].chh = parseBeatString('x.x.x.x.x.x.x.x.', 32);
-  A.notes[bass.id] = gen('Bass: syncopated', 2, 'Prog 1–6–3–7');
-  A.notes[keys.id] = gen('Chords (7ths)', 2, 'Prog 1–6–3–7');
-  B.notes[bass.id] = gen('Bass: octave bounce', 2, 'Prog 6–4–1–5');
-  B.notes[pad.id] = gen('Chords (block)', 2, 'Prog 6–4–1–5');
-  B.notes[lead.id] = gen('Arp: up-down', 2, 'Prog 6–4–1–5');
-  C.notes[pad.id] = gen('Chords (block)', 2, 'Prog 1–6–3–7');
-  song.arrangement = [2, 0, 0, 1, 1, 0, 1];
-  return song;
+  [A, B, C].forEach((p) => { L1.patterns.push(p); ensurePattern(p, L1); });
+  applyBeat(A, d1.id, 'Boom Bap');
+  applyBeat(B, d1.id, 'Half-Time');
+  B.drums[d1.id].crash[0] = 0.8;
+  applyBeat(C, d1.id, 'Clear');
+  C.drums[d1.id].chh = parseBeatString('x.x.x.x.x.x.x.x.', 32);
+  A.notes[b1.id] = gen(L1, 'Bass: syncopated', 2, 'Prog 1–6–3–7');
+  A.notes[k1.id] = gen(L1, 'Chords (7ths)', 2, 'Prog 1–6–3–7');
+  B.notes[b1.id] = gen(L1, 'Bass: octave bounce', 2, 'Prog 6–4–1–5');
+  B.notes[p1.id] = gen(L1, 'Chords (block)', 2, 'Prog 6–4–1–5');
+  B.notes[l1.id] = gen(L1, 'Arp: up-down', 2, 'Prog 6–4–1–5');
+  C.notes[p1.id] = gen(L1, 'Chords (block)', 2, 'Prog 1–6–3–7');
+  L1.arrangement = [2, 0, 0, 1, 1, 0, 1];
+
+  // Level 2 — same roles, different flavor: colder keys (Bell override), darker pad, slower, D minor.
+  const L2 = makeScore('Level 2 — Ice Caves', style);
+  L2.bpm = 84; L2.key = 2;
+  const [d2, b2, k2, p2, l2] = ['Drums', 'Bass', 'Keys', 'Pad', 'Lead'].map((n) => makeTrack(R[n]));
+  k2.sound = { preset: 'bell', synth: { ...SYNTH_PRESETS.bell } }; k2.vol = 0.5; k2.rev = 0.45;
+  p2.sound = soundFields(R.Pad); p2.sound.synth.cut = 700; p2.vol = 0.55; p2.rev = 0.5;
+  l2.vol = 0.45; l2.dly = 0.35;
+  L2.tracks.push(d2, b2, k2, p2, l2);
+  const E = makePattern('Explore', 4), D = makePattern('Danger', 2);
+  [E, D].forEach((p) => { L2.patterns.push(p); ensurePattern(p, L2); });
+  E.drums[d2.id].chh = parseBeatString('x...x...x...x...', 64);
+  E.drums[d2.id].rim = parseBeatString('......o.......o.', 64);
+  E.notes[p2.id] = gen(L2, 'Chords (block)', 4, 'Prog 1–7–6–7');
+  E.notes[k2.id] = gen(L2, 'Arp: broken', 4, 'Prog 1–7–6–7').filter((n, i) => i % 2 === 0);
+  applyBeat(D, d2.id, 'Half-Time');
+  D.notes[b2.id] = gen(L2, 'Bass: eighths', 2, 'Prog 1–6–3–7');
+  D.notes[p2.id] = gen(L2, 'Chords (block)', 2, 'Prog 1–6–3–7');
+  D.notes[l2.id] = gen(L2, 'Arp: up', 2, 'Prog 1–6–3–7');
+  L2.arrangement = [0, 0, 1, 1, 0];
+
+  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [L1, L2], current: 0 };
+}
+
+/* Older saves were a single song with sounds on each track: wrap them in a project,
+   turning each track's sound into a role. */
+function migrateSongToProject(song) {
+  const style = { key: song.key ?? 0, scale: song.scale || 'minor', bpm: song.bpm || 120, roles: [], mix: Object.assign({ ...DEFAULT_MIX }, song.master || {}) };
+  song.tracks.forEach((t) => {
+    const role = t.type === 'drum'
+      ? { id: uid(), name: uniqueRoleName(t.name, style), color: t.color, type: 'drum', kit: t.kit || 'classic', voices: t.voices || defaultVoices() }
+      : { id: uid(), name: uniqueRoleName(t.name, style), color: t.color, type: 'synth', preset: t.preset || 'piano', synth: Object.assign({}, SYNTH_PRESETS[t.preset] || SYNTH_PRESETS.piano, t.synth) };
+    style.roles.push(role);
+    t.role = role.id; t.sound = null;
+    delete t.kit; delete t.voices; delete t.preset; delete t.synth;
+  });
+  delete song.master; delete song.version;
+  song.id = song.id || uid();
+  return { app: 'SynthStudio', version: 2, name: song.name || 'My Game', style, scores: [song], current: 0 };
 }
 
 const App = {
-  song: null,
+  project: null,
+  get song() { return this.project.scores[this.project.current]; },
+  get style() { return this.project.style; },
   samples: {}, // id -> {name, dataURL, buffer}
-  sel: { track: null, pattern: 0 },
+  sel: { track: null, pattern: 0, role: null },
   mode: 'pattern',
   loopSong: true,
   metro: false,
@@ -85,40 +198,78 @@ const App = {
   redoStack: [],
 
   init() {
-    let loaded = false;
+    let p = null;
     try {
-      const saved = localStorage.getItem('synthstudio.autosave');
-      if (saved) { this.song = JSON.parse(saved); this.migrate(this.song); loaded = true; }
+      const saved = localStorage.getItem('synthstudio.project');
+      const old = localStorage.getItem('synthstudio.autosave');
+      if (saved) p = JSON.parse(saved);
+      else if (old) p = migrateSongToProject(JSON.parse(old));
     } catch (e) { console.warn(e); }
-    if (!loaded) demoSong();
-    ensureAll();
+    this.project = p || demoProject();
+    this.migrate(this.project);
+    this.resetSelection();
+  },
+  migrate(p) {
+    p.style.mix = Object.assign({ ...DEFAULT_MIX }, p.style.mix || {});
+    p.style.roles.forEach((r) => { if (r.type === 'synth') r.synth = Object.assign({}, SYNTH_PRESETS[r.preset] || SYNTH_PRESETS.piano, r.synth); });
+    p.current = clamp(p.current || 0, 0, p.scores.length - 1);
+    p.scores.forEach((s) => {
+      s.key = s.key ?? p.style.key; s.scale = s.scale || p.style.scale; s.swing = s.swing ?? 0;
+      s.arrangement = s.arrangement || [];
+      s.tracks.forEach((t) => { if (t.sound && t.sound.synth) t.sound.synth = Object.assign({}, SYNTH_PRESETS[t.sound.preset] || SYNTH_PRESETS.piano, t.sound.synth); });
+      ensureAll(s);
+    });
+  },
+  resetSelection() {
     this.sel.track = (this.song.tracks.find((t) => t.type === 'synth') || this.song.tracks[0] || {}).id;
     this.sel.pattern = 0;
-  },
-  migrate(s) {
-    s.master = Object.assign({ vol: 0.9, low: 0, mid: 0, high: 0, comp: -14, revSize: 2.4, revLevel: 0.9, dlyDiv: '1/8 dotted', dlyFb: 0.35 }, s.master || {});
-    s.key = s.key ?? 0; s.scale = s.scale || 'minor'; s.swing = s.swing ?? 0;
-    s.arrangement = s.arrangement || [];
-    s.tracks.forEach((t) => { if (t.type === 'synth') t.synth = Object.assign({}, SYNTH_PRESETS[t.preset] || SYNTH_PRESETS.piano, t.synth); });
+    this.sel.role = null;
   },
   track(id = this.sel.track) { return this.song.tracks.find((t) => t.id === id); },
+  role(id) { return this.style.roles.find((r) => r.id === id); },
   pattern() { return this.song.patterns[this.sel.pattern]; },
+  /* How many tracks (and in how many scores) play a role's shared sound. */
+  roleUsage(roleId) {
+    let tracks = 0, scores = 0, shared = 0, sharedScores = 0;
+    this.project.scores.forEach((s) => {
+      const ts = s.tracks.filter((t) => t.role === roleId);
+      const sh = ts.filter((t) => !t.sound).length;
+      if (ts.length) scores++;
+      if (sh) sharedScores++;
+      tracks += ts.length;
+      shared += sh;
+    });
+    return { tracks, scores, shared, sharedScores };
+  },
 
-  /* --- undo --- */
+  switchScore(i) {
+    if (i === this.project.current) return;
+    Seq.stop(); Live.allOff();
+    this.project.current = i;
+    ensureAll();
+    this.resetSelection();
+    Engine.sync();
+    UI.renderAll();
+    this.changed();
+  },
+
+  /* --- undo (snapshots the whole project, so Style edits are undoable too) --- */
   pushUndo() {
-    this.undoStack.push(JSON.stringify(this.song));
+    this.undoStack.push(JSON.stringify(this.project));
     if (this.undoStack.length > 150) this.undoStack.shift();
     this.redoStack = [];
   },
-  undo() { if (!this.undoStack.length) return; this.redoStack.push(JSON.stringify(this.song)); this.replaceSong(JSON.parse(this.undoStack.pop()), true); },
-  redo() { if (!this.redoStack.length) return; this.undoStack.push(JSON.stringify(this.song)); this.replaceSong(JSON.parse(this.redoStack.pop()), true); },
-  replaceSong(song, keepHistory) {
-    this.song = song;
-    this.migrate(song);
-    ensureAll();
+  undo() { if (!this.undoStack.length) return; this.redoStack.push(JSON.stringify(this.project)); this.replaceProject(JSON.parse(this.undoStack.pop()), true); },
+  redo() { if (!this.redoStack.length) return; this.undoStack.push(JSON.stringify(this.project)); this.replaceProject(JSON.parse(this.redoStack.pop()), true); },
+  replaceProject(p, keepHistory) {
+    const prevScore = this.project && this.song && this.song.id;
+    this.project = p;
+    this.migrate(p);
     if (!keepHistory) { this.undoStack = []; this.redoStack = []; }
-    if (!this.track()) this.sel.track = (song.tracks[0] || {}).id;
-    if (this.sel.pattern >= song.patterns.length) this.sel.pattern = 0;
+    if (this.song.id !== prevScore) { Seq.stop(); this.resetSelection(); }
+    if (!this.track()) this.sel.track = (this.song.tracks[0] || {}).id;
+    if (this.sel.role && !this.role(this.sel.role)) this.sel.role = null;
+    if (this.sel.pattern >= this.song.patterns.length) this.sel.pattern = 0;
     Engine.sync();
     UI.renderAll();
     this.changed();
@@ -129,20 +280,30 @@ const App = {
   changed() {
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
-      try { localStorage.setItem('synthstudio.autosave', JSON.stringify(this.song)); } catch (e) { console.warn('Autosave failed', e); }
+      try { localStorage.setItem('synthstudio.project', JSON.stringify(this.project)); } catch (e) { console.warn('Autosave failed', e); }
     }, 400);
   },
-  projectBlob() {
+  usedSampleIds() {
     const used = new Set();
-    this.song.tracks.forEach((t) => t.type === 'drum' && Object.values(t.voices).forEach((v) => v.sample && used.add(v.sample)));
+    const add = (s) => s && s.voices && Object.values(s.voices).forEach((v) => v.sample && used.add(v.sample));
+    this.style.roles.forEach(add);
+    this.project.scores.forEach((s) => s.tracks.forEach((t) => add(t.sound)));
+    return used;
+  },
+  projectBlob() {
     const samples = {};
-    used.forEach((id) => { if (this.samples[id]) samples[id] = { name: this.samples[id].name, dataURL: this.samples[id].dataURL }; });
-    return new Blob([JSON.stringify({ app: 'SynthStudio', version: 1, song: this.song, samples }, null, 1)], { type: 'application/json' });
+    this.usedSampleIds().forEach((id) => { if (this.samples[id]) samples[id] = { name: this.samples[id].name, dataURL: this.samples[id].dataURL }; });
+    return new Blob([JSON.stringify({ ...this.project, samples }, null, 1)], { type: 'application/json' });
   },
   async loadProject(text) {
     const data = JSON.parse(text);
-    const song = data.song || data;
-    if (!song.tracks || !song.patterns) throw new Error('Not a Synth Studio project');
+    let p;
+    if (data.scores && data.style) p = data;
+    else {
+      const song = data.song || data;
+      if (!song.tracks || !song.patterns) throw new Error('Not a Synth Studio project');
+      p = migrateSongToProject(song);
+    }
     if (data.samples) {
       const ctx = Engine.ensure();
       for (const [id, s] of Object.entries(data.samples)) {
@@ -150,9 +311,13 @@ const App = {
         this.samples[id] = { name: s.name, dataURL: s.dataURL, buffer: await ctx.decodeAudioData(buf) };
       }
     }
+    delete p.samples;
     Seq.stop();
-    this.sel.pattern = 0;
-    this.replaceSong(song, false);
+    this.pushUndo();
+    this.project = null;
+    this.replaceProject(p, true);
+    this.resetSelection();
+    UI.renderAll();
   },
   async addSample(file) {
     const ctx = Engine.ensure();
@@ -170,22 +335,32 @@ const App = {
 const Live = {
   voices: {},   // midi -> voice
   rec: {},      // midi -> {pat, start}
-  noteOn(midi, vel = App.vel, trackId = App.sel.track) {
+  /* What the keyboard plays: a role being edited on the Game Style tab, else the selected track. */
+  target() {
+    if (App.sel.role) {
+      const r = App.role(App.sel.role);
+      if (!r) return null;
+      const t = App.song.tracks.find((x) => x.role === r.id && !x.sound);
+      return { sound: r, type: r.type, dest: t ? Engine.g.tracks[t.id].input : Engine.g.bus, track: null };
+    }
+    const t = App.track();
+    return t ? { sound: snd(t), type: t.type, dest: Engine.g.tracks[t.id].input, track: t } : null;
+  },
+  noteOn(midi, vel = App.vel) {
     const ctx = Engine.ensure();
-    const t = App.track(trackId);
-    if (!t) return;
-    const nodes = Engine.g.tracks[t.id];
+    const tg = this.target();
+    if (!tg) return;
     UI.keyDown(midi, true);
-    if (t.type === 'drum') {
+    if (tg.type === 'drum') {
       const v = DRUM_VOICES[((midi % 12) + 12) % 12];
-      if (v) this.drumHit(t, v.id, vel);
+      if (v) this.hit(tg, v.id, vel);
       return;
     }
     if (this.voices[midi]) this.voices[midi].release(ctx.currentTime);
-    this.voices[midi] = synthVoice(ctx, nodes.input, t.synth, midi, vel, ctx.currentTime + 0.005);
-    if (App.recording && Seq.playing) {
+    this.voices[midi] = synthVoice(ctx, tg.dest, tg.sound.synth, midi, vel, ctx.currentTime + 0.005);
+    if (tg.track && App.recording && Seq.playing) {
       const pos = Seq.posAt(ctx.currentTime);
-      if (pos) this.rec[midi] = { pat: pos.pat, start: pos.local, step: pos.step, vel, track: t.id };
+      if (pos) this.rec[midi] = { pat: pos.pat, start: pos.local, step: pos.step, vel, track: tg.track.id };
     }
   },
   noteOff(midi) {
@@ -196,12 +371,14 @@ const Live = {
     if (r) { delete this.rec[midi]; this.commitNote(midi, r, Seq.posAt(Engine.ctx.currentTime)); }
   },
   drumHit(t, voiceId, vel = 1) {
-    const ctx = Engine.ensure();
-    const nodes = Engine.g.tracks[t.id];
-    nodes.input.__id = t.id;
-    const vs = t.voices[voiceId];
-    playDrum(Engine.g, nodes.input, voiceId, ctx.currentTime + 0.003, vel, t.kit, vs, vs.sample ? App.sampleBuffer(vs.sample) : null);
-    if (App.recording && Seq.playing) {
+    Engine.ensure();
+    this.hit({ sound: snd(t), type: 'drum', dest: Engine.g.tracks[t.id].input, track: t }, voiceId, vel);
+  },
+  hit(tg, voiceId, vel) {
+    const ctx = Engine.ctx;
+    const vs = tg.sound.voices[voiceId];
+    playDrum(Engine.g, tg.dest, voiceId, ctx.currentTime + 0.003, vel, tg.sound.kit, vs, vs.sample ? App.sampleBuffer(vs.sample) : null);
+    if (tg.track && App.recording && Seq.playing) {
       const pos = Seq.posAt(ctx.currentTime);
       if (!pos) return;
       const pat = App.song.patterns[pos.pat];
@@ -209,7 +386,7 @@ const Live = {
       const s = Math.round(pos.local) % steps;
       App.pushUndo();
       ensurePattern(pat);
-      pat.drums[t.id][voiceId][s] = Math.max(0.4, vel);
+      pat.drums[tg.track.id][voiceId][s] = Math.max(0.4, vel);
       App.changed();
       UI.renderBeat();
     }

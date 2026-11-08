@@ -120,7 +120,7 @@ function exportMIDI(source, repeats) {
     const events = [{ tick: 0, order: 0, data: textMeta(0x03, t.name) }];
     let channel;
     if (t.type === 'drum') channel = 9;
-    else { if (ch === 9) ch++; channel = ch++ % 16; events.push({ tick: 0, order: 0, data: [0xc0 | channel, (t.synth.gm ?? 0) & 127] }); }
+    else { if (ch === 9) ch++; channel = ch++ % 16; events.push({ tick: 0, order: 0, data: [0xc0 | channel, (snd(t).synth.gm ?? 0) & 127] }); }
     events.push({ tick: 0, order: 0, data: [0xb0 | channel, 7, Math.round(clamp(t.vol, 0, 1) * 127)] });
     events.push({ tick: 0, order: 0, data: [0xb0 | channel, 10, Math.round((t.pan + 1) * 63.5)] });
     let offset = 0;
@@ -139,7 +139,7 @@ function exportMIDI(source, repeats) {
         }
       } else {
         for (const n of pat.notes[t.id] || []) {
-          const p = clamp(n.p + 12 * (t.synth.oct || 0), 0, 127);
+          const p = clamp(n.p + 12 * (snd(t).synth.oct || 0), 0, 127);
           const tk = Math.round(offset + n.s * TPS), len = Math.max(1, Math.round(n.l * TPS));
           events.push({ tick: tk, order: 2, data: [0x90 | channel, p, clamp(Math.round(n.v * 127), 1, 127)] });
           events.push({ tick: tk + len, order: 1, data: [0x80 | channel, p, 0] });

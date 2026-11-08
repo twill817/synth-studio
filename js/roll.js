@@ -60,7 +60,7 @@ const Roll = {
   audition(p) {
     const t = this.track(); if (!t) return;
     const ctx = Engine.ensure();
-    synthVoice(ctx, Engine.g.tracks[t.id].input, t.synth, p, App.vel, ctx.currentTime + 0.005).release(ctx.currentTime + 0.3);
+    synthVoice(ctx, Engine.g.tracks[t.id].input, snd(t).synth, p, App.vel, ctx.currentTime + 0.005).release(ctx.currentTime + 0.3);
   },
 
   toCell(e) {
@@ -91,7 +91,7 @@ const Roll = {
       return;
     }
     this.grid.setPointerCapture(e.pointerId);
-    this.snapshot = JSON.stringify(App.song);
+    this.snapshot = JSON.stringify(App.project);
     if (!h && e.shiftKey) { this.drag = { mode: 'box', x0: c.x, y0: c.y, x1: c.x, y1: c.y }; return; }
     if (h) {
       if (e.ctrlKey || e.metaKey) { this.sel.has(h.n) ? this.sel.delete(h.n) : this.sel.add(h.n); this.draw(); return; }
@@ -158,7 +158,7 @@ const Roll = {
       return;
     }
     if (d.mode === 'resize' && d.orig.length === 1) App.noteLen = d.orig[0].n.l;
-    if (JSON.stringify(App.song) !== this.snapshot) {
+    if (JSON.stringify(App.project) !== this.snapshot) {
       App.undoStack.push(this.snapshot); App.redoStack = [];
       App.changed();
     }
