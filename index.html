@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synth Studio</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand"><span class="logo">◆</span> Synth Studio</div>
+  <input id="songName" class="song-name" title="Song name" spellcheck="false">
+  <div class="transport">
+    <button id="btnPlay" class="tbtn play" title="Play / Pause (Space)">▶</button>
+    <button id="btnStop" class="tbtn" title="Stop (Enter)">■</button>
+    <button id="btnRec" class="tbtn rec" title="Record from keyboard / MIDI into the playing pattern (R)">●</button>
+    <div class="seg" id="modeSeg">
+      <button data-mode="pattern" class="on" title="Loop the selected pattern">Pattern</button>
+      <button data-mode="song" title="Play the arrangement">Song</button>
+    </div>
+    <button id="btnLoop" class="tbtn small on" title="Loop the song in Song mode">⟲</button>
+    <div class="pos" id="posDisplay">1.1.1</div>
+  </div>
+  <div class="tempo">
+    <label>BPM <input id="bpm" type="number" min="40" max="260" step="1"></label>
+    <label title="Swing amount">Swing <input id="swing" type="range" min="0" max="75" step="1"></label>
+    <button id="btnMetro" class="tbtn small" title="Metronome (M)">♩</button>
+  </div>
+  <canvas id="scope" width="160" height="34" title="Output"></canvas>
+  <div class="filebar">
+    <button id="btnUndo" title="Undo (Ctrl+Z)">↶</button>
+    <button id="btnRedo" title="Redo (Ctrl+Y)">↷</button>
+    <button id="btnNew">New</button>
+    <button id="btnOpen" title="Open project (.json) or import a MIDI file">Open</button>
+    <button id="btnSave" title="Save project (Ctrl+S)">Save</button>
+    <button id="btnExport" class="primary">Export</button>
+  </div>
+</header>
+
+<main>
+  <aside id="sidebar">
+    <section>
+      <h3>Tracks</h3>
+      <div id="trackList"></div>
+      <div class="row gap">
+        <select id="addTrackPreset" title="Instrument for new track"></select>
+        <button id="btnAddTrack">+ Track</button>
+      </div>
+      <button id="btnAddDrum" class="ghost">+ Drum kit</button>
+    </section>
+    <section>
+      <h3>Patterns</h3>
+      <div id="patternList"></div>
+      <div class="row gap">
+        <button id="btnAddPattern">+ New</button>
+        <button id="btnDupPattern">Duplicate</button>
+        <button id="btnDelPattern" class="danger">Delete</button>
+      </div>
+    </section>
+  </aside>
+
+  <section id="workspace">
+    <nav class="tabs" id="tabs">
+      <button data-view="beat" class="on">Beat</button>
+      <button data-view="roll">Piano Roll</button>
+      <button data-view="arrange">Arrange</button>
+      <button data-view="mixer">Mixer &amp; FX</button>
+    </nav>
+
+    <div class="view on" id="view-beat">
+      <div class="toolbar">
+        <label>Drum track <select id="beatTrack"></select></label>
+        <label>Kit <select id="beatKit"></select></label>
+        <label>Bars <select class="barsSel"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
+        <label>Beat loop <select id="beatLoop"></select></label>
+        <button id="btnBeatApply">Load</button>
+        <button id="btnBeatDouble" title="Double the pattern length, copying its contents">×2</button>
+        <button id="btnBeatClear" class="danger">Clear drums</button>
+        <span class="hint">Click = on/off · Shift/right-click = change velocity · drag to paint · keys 1–0 play pads</span>
+      </div>
+      <div id="beatGrid" class="beat-grid"></div>
+    </div>
+
+    <div class="view" id="view-roll">
+      <div class="toolbar">
+        <label>Track <select id="rollTrack"></select></label>
+        <label>Snap <select id="rollSnap">
+          <option value="0.5">1/32</option><option value="1" selected>1/16</option><option value="2">1/8</option>
+          <option value="4">1/4</option><option value="8">1/2</option><option value="16">1 bar</option></select></label>
+        <label>Length <select id="rollLen">
+          <option value="1">1/16</option><option value="2" selected>1/8</option><option value="4">1/4</option>
+          <option value="8">1/2</option><option value="16">1 bar</option></select></label>
+        <label>Velocity <input id="rollVel" type="range" min="0.05" max="1" step="0.05"></label>
+        <label>Key <select id="songKey"></select></label>
+        <label>Scale <select id="songScale"></select></label>
+        <label>Bars <select class="barsSel"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
+        <label><input type="checkbox" id="rollGhost" checked> Ghost notes</label>
+        <label>Zoom <input id="rollZoom" type="range" min="10" max="48" value="22"></label>
+      </div>
+      <div class="toolbar sub">
+        <label>Loop <select id="loopGen"></select></label>
+        <label>Progression <select id="loopProg"></select></label>
+        <button id="btnLoopInsert" title="Replace this track's notes in the pattern with the generated loop">Insert loop</button>
+        <button id="btnRollClear" class="danger">Clear notes</button>
+        <button id="btnTransDown" title="Transpose selected (or all) notes down a semitone">−1</button>
+        <button id="btnTransUp" title="Transpose up a semitone">+1</button>
+        <button id="btnQuant" title="Quantize all notes to the snap grid">Quantize</button>
+        <label><input type="checkbox" id="recQuant" checked> Quantize recording</label>
+        <span class="hint">Click empty = add · drag = move · drag right edge = resize · right-click = delete · Shift-drag = box select · Del = delete selected</span>
+      </div>
+      <div id="rollWrap" class="roll-wrap">
+        <div class="roll-inner">
+          <canvas id="rollKeys"></canvas>
+          <canvas id="rollGrid"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="view-arrange">
+      <div class="toolbar">
+        <span>Click a pattern to append it to the song. Drag blocks to reorder; right-click or ✕ removes.</span>
+        <button id="btnArrClear" class="danger">Clear song</button>
+      </div>
+      <h4 class="subhead">Patterns</h4>
+      <div id="arrPalette" class="arr-palette"></div>
+      <h4 class="subhead">Song <span id="arrLen" class="muted"></span></h4>
+      <div id="arrStrip" class="arr-strip"></div>
+    </div>
+
+    <div class="view" id="view-mixer">
+      <div id="mixer" class="mixer"></div>
+    </div>
+  </section>
+</main>
+
+<footer id="bottom">
+  <div id="instPanel" class="inst-panel"></div>
+  <div class="kbd-area">
+    <div class="kbd-bar">
+      <button id="octDown" title="Octave down (Z)">◀</button>
+      <span id="octLabel">C4</span>
+      <button id="octUp" title="Octave up (X)">▶</button>
+      <span class="muted" id="kbdTarget"></span>
+      <span class="muted" id="midiStatus"></span>
+      <span class="hint">Play with A W S E D F T G Y H U J K O L P · Z/X octave</span>
+    </div>
+    <div id="keyboard" class="keyboard"></div>
+  </div>
+</footer>
+
+<dialog id="exportDlg">
+  <form method="dialog" class="dlg">
+    <h2>Export</h2>
+    <fieldset>
+      <legend>Format</legend>
+      <label><input type="radio" name="fmt" value="wav16" checked> WAV — 16-bit</label>
+      <label><input type="radio" name="fmt" value="wav24"> WAV — 24-bit</label>
+      <label><input type="radio" name="fmt" value="wav32"> WAV — 32-bit float</label>
+      <label><input type="radio" name="fmt" value="mp3"> MP3 — <select id="mp3Rate"><option>128</option><option selected>192</option><option>256</option><option>320</option></select> kbps</label>
+      <label><input type="radio" name="fmt" value="stems"> Stems — one WAV per track</label>
+      <label><input type="radio" name="fmt" value="midi"> MIDI (.mid)</label>
+      <label><input type="radio" name="fmt" value="project"> Project file (.json)</label>
+    </fieldset>
+    <fieldset>
+      <legend>What to export</legend>
+      <label><input type="radio" name="src" value="song" checked> Whole song (arrangement)</label>
+      <label><input type="radio" name="src" value="pattern"> Selected pattern × <input id="expRepeats" type="number" min="1" max="64" value="4" style="width:4em"></label>
+      <label>Sample rate <select id="expRate"><option>44100</option><option>48000</option></select></label>
+      <label>Reverb tail <input id="expTail" type="number" min="0" max="10" step="0.5" value="2" style="width:4em"> s</label>
+    </fieldset>
+    <div id="expStatus" class="muted"></div>
+    <div class="row end gap">
+      <button value="cancel" formnovalidate>Close</button>
+      <button id="btnDoExport" class="primary" value="default">Export</button>
+    </div>
+  </form>
+</dialog>
+
+<input type="file" id="fileOpen" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
+<input type="file" id="fileSample" accept="audio/*" hidden>
+
+<script src="js/presets.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/export.js"></script>
+<script src="js/app.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/roll.js"></script>
+<script>App.init(); UI.init(); initMIDI();</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+.claude/
+.DS_Store
+Thumbs.db
+*.wav
+*.mp3
