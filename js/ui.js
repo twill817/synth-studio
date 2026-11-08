@@ -6,12 +6,25 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const patLetter = (i) => (i < 26 ? String.fromCharCode(65 + i) : 'P' + (i + 1));
 const patColor = (i) => `hsl(${(i * 67 + 200) % 360} 65% 66%)`;
 
-function toast(msg, ms = 2200) {
+/* Short on-screen notice. With an action ({label, fn}) it gets a button, e.g. Undo.
+   (Native confirm/alert are avoided: some embedded browsers suppress them silently.) */
+function toast(msg, ms = 2200, action) {
+  if (action) $$('.toast.has-action').forEach((x) => x.remove());
   const t = document.createElement('div');
-  t.className = 'toast'; t.textContent = msg;
+  t.className = 'toast' + (action ? ' has-action' : '');
+  const span = document.createElement('span');
+  span.textContent = msg;
+  t.appendChild(span);
+  if (action) {
+    const b = document.createElement('button');
+    b.textContent = action.label;
+    b.onclick = () => { t.remove(); action.fn(); };
+    t.appendChild(b);
+  }
   document.body.appendChild(t);
   setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.remove(), 400); }, ms);
 }
+const undoToast = (msg) => toast(msg, 6000, { label: 'Undo', fn: () => App.undo() });
 
 /* ---------- value formatting + generic slider binding ---------- */
 function fmtv(v, f) {
@@ -155,7 +168,7 @@ const UI = {
       try {
         if (/\.midi?$/i.test(f.name)) { this.importMIDI(await f.arrayBuffer(), f.name); }
         else { await App.loadProject(await f.text()); toast('Opened ' + f.name); }
-      } catch (err) { alert('Could not open file: ' + err.message); }
+      } catch (err) { toast('Could not open file: ' + err.message, 5000); }
     };
   },
   setMode(m) {
@@ -182,8 +195,8 @@ const UI = {
     }
   },
   newSong() {
-    if (!confirm('Start a new empty song? (Unsaved changes will be lost — use Save first if needed.)')) return;
     Seq.stop();
+    App.pushUndo();
     const song = { version: 1, name: 'Untitled Song', bpm: 120, swing: 0, key: 0, scale: 'major', tracks: [], patterns: [], arrangement: [0],
       master: { vol: 0.9, low: 0, mid: 0, high: 0, comp: -14, revSize: 2.4, revLevel: 0.9, dlyDiv: '1/8 dotted', dlyFb: 0.35 } };
     App.song = song;
@@ -191,12 +204,13 @@ const UI = {
     song.patterns.push(makePattern('Pattern 1', 2));
     App.sel.pattern = 0;
     App.sel.track = song.tracks[1].id;
-    App.replaceSong(song, false);
+    App.replaceSong(song, true);
+    undoToast('Started a new song');
   },
   saveProject() { download(App.projectBlob(), safeName(App.song.name) + '.synth.json'); toast('Project saved to your downloads'); },
   importMIDI(ab, fname) {
     const { notes, tps } = parseMIDI(ab);
-    if (!notes.length) { alert('No notes found in that MIDI file.'); return; }
+    if (!notes.length) { toast('No notes found in that MIDI file.', 4000); return; }
     App.pushUndo();
     const song = App.song;
     const maxStep = Math.max(...notes.map((n) => (n.start + n.len) / tps));
@@ -262,12 +276,12 @@ const UI = {
       }
       if (act === 'del') {
         if (App.song.tracks.length <= 1) return toast('A song needs at least one track');
-        if (!confirm(`Delete track "${t.name}" and all its notes?`)) return;
         App.pushUndo();
         App.song.tracks = App.song.tracks.filter((x) => x !== t);
         App.song.patterns.forEach((p) => { delete p.drums[t.id]; delete p.notes[t.id]; });
         if (App.sel.track === t.id) App.sel.track = App.song.tracks[0].id;
         Engine.sync(); this.renderAll(); App.changed();
+        undoToast(`Deleted track "${t.name}"`);
         return;
       }
       this.selectTrack(t.id);
@@ -282,6 +296,7 @@ const UI = {
     pl.addEventListener('click', (e) => {
       const it = e.target.closest('.pattern-item');
       if (!it) return;
+      if (e.target.dataset.act === 'del') return this.deletePattern(+it.dataset.i);
       this.pickPattern(+it.dataset.i);
       if (e.target.dataset.act === 'rename') this.renamePattern(+it.dataset.i, 'side');
     });
@@ -304,17 +319,21 @@ const UI = {
       App.song.arrangement = App.song.arrangement.map((i) => (i > App.sel.pattern ? i + 1 : i));
       this.selectPattern(App.sel.pattern + 1); App.changed();
     };
-    $('#btnDelPattern').onclick = () => {
-      const s = App.song;
-      if (s.patterns.length <= 1) return toast('A song needs at least one pattern');
-      if (!confirm(`Delete pattern "${App.pattern().name}"? It will also be removed from the song.`)) return;
-      App.pushUndo();
-      const k = App.sel.pattern;
-      s.patterns.splice(k, 1);
-      s.arrangement = s.arrangement.filter((i) => i !== k).map((i) => (i > k ? i - 1 : i));
-      App.sel.pattern = Math.max(0, k - 1);
-      this.renderAll(); App.changed();
-    };
+    $('#btnDelPattern').onclick = () => this.deletePattern(App.sel.pattern);
+  },
+  /* Delete pattern k, drop it from the song, and keep the selection on a sensible neighbour. */
+  deletePattern(k) {
+    const s = App.song;
+    if (s.patterns.length <= 1) return toast('A song needs at least one pattern');
+    const name = s.patterns[k].name;
+    const uses = s.arrangement.filter((i) => i === k).length;
+    App.pushUndo();
+    s.patterns.splice(k, 1);
+    s.arrangement = s.arrangement.filter((i) => i !== k).map((i) => (i > k ? i - 1 : i));
+    if (App.sel.pattern > k) App.sel.pattern--;
+    App.sel.pattern = Math.min(App.sel.pattern, s.patterns.length - 1);
+    this.renderAll(); App.changed();
+    undoToast(`Deleted pattern "${name}"` + (uses ? ` (and ${uses} block${uses > 1 ? 's' : ''} from the song)` : ''));
   },
   /* Inline rename. Elements are looked up fresh because clicks re-render the lists. */
   renamePattern(i, where, k) {
@@ -374,8 +393,10 @@ const UI = {
       <div class="pattern-item ${i === App.sel.pattern ? 'sel' : ''}" data-i="${i}" title="Double-click name to rename">
         <span class="letter" style="border-left:3px solid ${patColor(i)}">${patLetter(i)}</span>
         <span class="name">${esc(p.name)}</span><button class="edit" data-act="rename" title="Rename pattern">✎</button><span class="bars">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
+        ${App.song.patterns.length > 1 ? '<button class="x" data-act="del" title="Delete pattern">✕</button>' : ''}
       </div>`).join('');
     $$('.barsSel').forEach((s) => (s.value = App.pattern().bars));
+    $('#btnDelPattern').hidden = App.song.patterns.length <= 1;
   },
 
   /* ---------- beat grid ---------- */
@@ -465,7 +486,7 @@ const UI = {
         this.drumTrack().voices[this._sampleVoice].sample = id;
         this.renderBeat(); App.changed();
         toast(`Loaded "${f.name}" — note: samples are saved in project files, not autosave`);
-      } catch (err) { alert('Could not decode that audio file: ' + err.message); }
+      } catch (err) { toast('Could not decode that audio file: ' + err.message, 5000); }
     };
   },
   styleStep(el, v) {
@@ -580,7 +601,11 @@ const UI = {
       dragK = null;
       this.renderArrange();
     });
-    $('#btnArrClear').onclick = () => { if (!confirm('Remove all blocks from the song?')) return; App.pushUndo(); App.song.arrangement = []; this.renderArrange(); App.changed(); };
+    $('#btnArrClear').onclick = () => {
+      if (!App.song.arrangement.length) return;
+      App.pushUndo(); App.song.arrangement = []; this.renderArrange(); App.changed();
+      undoToast('Cleared the song arrangement');
+    };
   },
   renderArrange() {
     const s = App.song;
