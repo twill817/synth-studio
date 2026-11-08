@@ -58,6 +58,35 @@ function wire(root, resolve) {
   root.addEventListener('input', handler);
 }
 
+/* Turn a text element into an inline text box. commit(newName) gets the trimmed new
+   name, or null when cancelled / empty / unchanged (caller re-renders either way). */
+function inlineRename(el, current, commit) {
+  if (!el || el.querySelector('input')) return;
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.className = 'inline-edit'; inp.value = current; inp.maxLength = 40;
+  inp.setAttribute('aria-label', 'Name');
+  const drag = el.closest('[draggable="true"]');
+  if (drag) drag.setAttribute('draggable', 'false');
+  el.textContent = '';
+  el.appendChild(inp);
+  inp.focus(); inp.select();
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    const v = inp.value.trim();
+    commit(save && v && v !== current ? v : null);
+  };
+  inp.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  inp.addEventListener('keyup', (e) => e.stopPropagation());
+  inp.addEventListener('blur', () => finish(true));
+  ['click', 'dblclick', 'pointerdown', 'contextmenu'].forEach((t) => inp.addEventListener(t, (e) => e.stopPropagation()));
+}
+
 const UI = {
   view: 'beat',
   beatTrackId: null,
@@ -224,6 +253,7 @@ const UI = {
       if (!it) return;
       const t = App.track(it.dataset.id);
       const act = e.target.dataset.act;
+      if (act === 'rename') { this.selectTrack(t.id); this.renameTrack(t.id); return; }
       if (act === 'm' || act === 's') {
         App.pushUndo();
         t[act === 'm' ? 'mute' : 'solo'] = !t[act === 'm' ? 'mute' : 'solo'];
@@ -245,22 +275,20 @@ const UI = {
     tl.addEventListener('dblclick', (e) => {
       const it = e.target.closest('.track-item');
       if (!it || e.target.closest('button')) return;
-      const t = App.track(it.dataset.id);
-      const n = prompt('Track name', t.name);
-      if (n) { App.pushUndo(); t.name = n; this.renderAll(); App.changed(); }
+      this.renameTrack(it.dataset.id);
     });
 
     const pl = $('#patternList');
     pl.addEventListener('click', (e) => {
       const it = e.target.closest('.pattern-item');
-      if (it) this.selectPattern(+it.dataset.i);
+      if (!it) return;
+      this.pickPattern(+it.dataset.i);
+      if (e.target.dataset.act === 'rename') this.renamePattern(+it.dataset.i, 'side');
     });
     pl.addEventListener('dblclick', (e) => {
       const it = e.target.closest('.pattern-item');
-      if (!it) return;
-      const p = App.song.patterns[+it.dataset.i];
-      const n = prompt('Pattern name', p.name);
-      if (n) { App.pushUndo(); p.name = n; this.renderPatterns(); this.renderArrange(); App.changed(); }
+      if (!it || e.target.closest('button')) return;
+      this.renamePattern(+it.dataset.i, 'side');
     });
     $('#btnAddPattern').onclick = () => {
       App.pushUndo();
@@ -288,12 +316,42 @@ const UI = {
       this.renderAll(); App.changed();
     };
   },
+  /* Inline rename. Elements are looked up fresh because clicks re-render the lists. */
+  renamePattern(i, where, k) {
+    const p = App.song.patterns[i];
+    const el = where === 'side' ? $(`.pattern-item[data-i="${i}"] .name`)
+      : where === 'palette' ? $(`.arr-pat[data-i="${i}"] .name`)
+      : $(`.arr-block[data-k="${k}"] small`);
+    inlineRename(el, p.name, (v) => {
+      if (v) { App.pushUndo(); p.name = v; App.changed(); }
+      this.renderPatterns(); this.renderArrange();
+    });
+  },
+  renameTrack(id) {
+    const t = App.track(id);
+    inlineRename($(`.track-item[data-id="${id}"] .name`), t.name, (v) => {
+      if (v) { App.pushUndo(); t.name = v; App.changed(); }
+      this.renderTracks(); this.renderMixer(); this.renderRollBar(); this.renderInst(); this.renderKeyboard();
+      $$('#beatTrack option').forEach((o) => { if (o.value === id) o.textContent = t.name; });
+    });
+  },
   selectTrack(id) {
     App.sel.track = id;
     const t = App.track(id);
     if (t.type === 'drum') { this.beatTrackId = id; this.renderBeat(); }
     Roll.sel.clear();
-    this.renderTracks(); this.renderRollBar(); this.renderInst(); this.renderKeyboard(); Roll.scrollToNotes();
+    $$('.track-item').forEach((e) => e.classList.toggle('sel', e.dataset.id === id));
+    this.renderRollBar(); this.renderInst(); this.renderKeyboard(); Roll.scrollToNotes();
+  },
+  /* Selection from a click: move the highlight without rebuilding the list, so the
+     elements survive for a double-click rename. */
+  pickPattern(i) {
+    if (i === App.sel.pattern) return;
+    App.sel.pattern = i;
+    Roll.sel.clear();
+    $$('.pattern-item').forEach((e) => e.classList.toggle('sel', +e.dataset.i === i));
+    $$('.barsSel').forEach((s) => (s.value = App.pattern().bars));
+    this.renderBeat(); this.renderRollBar(); Roll.draw();
   },
   selectPattern(i) {
     App.sel.pattern = i;
@@ -302,9 +360,10 @@ const UI = {
   },
   renderTracks() {
     $('#trackList').innerHTML = App.song.tracks.map((t) => `
-      <div class="track-item ${t.id === App.sel.track ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — ${t.type === 'drum' ? 'drum kit' : esc((SYNTH_PRESETS[t.preset] || {}).name || '')} · double-click to rename">
+      <div class="track-item ${t.id === App.sel.track ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — ${t.type === 'drum' ? 'drum kit' : esc((SYNTH_PRESETS[t.preset] || {}).name || '')} · double-click name to rename">
         <span class="dot" style="background:${t.color}"></span>
         <span class="name">${esc(t.name)}</span>
+        <button class="edit" data-act="rename" title="Rename track">✎</button>
         <button class="ms m ${t.mute ? 'on' : ''}" data-act="m" title="Mute">M</button>
         <button class="ms s ${t.solo ? 'on' : ''}" data-act="s" title="Solo">S</button>
         <button class="x" data-act="del" title="Delete track">✕</button>
@@ -312,9 +371,9 @@ const UI = {
   },
   renderPatterns() {
     $('#patternList').innerHTML = App.song.patterns.map((p, i) => `
-      <div class="pattern-item ${i === App.sel.pattern ? 'sel' : ''}" data-i="${i}" title="Double-click to rename">
+      <div class="pattern-item ${i === App.sel.pattern ? 'sel' : ''}" data-i="${i}" title="Double-click name to rename">
         <span class="letter" style="border-left:3px solid ${patColor(i)}">${patLetter(i)}</span>
-        <span class="name">${esc(p.name)}</span><span class="bars">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
+        <span class="name">${esc(p.name)}</span><button class="edit" data-act="rename" title="Rename pattern">✎</button><span class="bars">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
       </div>`).join('');
     $$('.barsSel').forEach((s) => (s.value = App.pattern().bars));
   },
@@ -492,6 +551,7 @@ const UI = {
     $('#arrPalette').addEventListener('click', (e) => {
       const it = e.target.closest('.arr-pat');
       if (!it) return;
+      if (e.target.dataset.act === 'rename') return this.renamePattern(+it.dataset.i, 'palette');
       App.pushUndo(); App.song.arrangement.push(+it.dataset.i); this.renderArrange(); App.changed();
     });
     const strip = $('#arrStrip');
@@ -500,7 +560,11 @@ const UI = {
       const b = e.target.closest('.arr-block');
       if (!b) return;
       if (e.target.classList.contains('x')) return removeAt(+b.dataset.k);
-      this.selectPattern(+b.dataset.i);
+      this.pickPattern(+b.dataset.i);
+    });
+    strip.addEventListener('dblclick', (e) => {
+      const b = e.target.closest('.arr-block');
+      if (b && !e.target.closest('button')) this.renamePattern(+b.dataset.i, 'block', +b.dataset.k);
     });
     strip.addEventListener('contextmenu', (e) => { const b = e.target.closest('.arr-block'); if (b) { e.preventDefault(); removeAt(+b.dataset.k); } });
     let dragK = null;
@@ -520,12 +584,12 @@ const UI = {
   },
   renderArrange() {
     const s = App.song;
-    $('#arrPalette').innerHTML = s.patterns.map((p, i) => `<div class="arr-pat" data-i="${i}" style="border-left:5px solid ${patColor(i)}"><b>${patLetter(i)}</b>${esc(p.name)} <span class="muted">${p.bars}b</span></div>`).join('');
+    $('#arrPalette').innerHTML = s.patterns.map((p, i) => `<div class="arr-pat" data-i="${i}" style="border-left:5px solid ${patColor(i)}"><b>${patLetter(i)}</b><span class="name">${esc(p.name)}</span> <span class="muted">${p.bars}b</span><button class="edit" data-act="rename" title="Rename pattern">✎</button></div>`).join('');
     const arr = s.arrangement.filter((i) => s.patterns[i]);
     $('#arrStrip').innerHTML = arr.length ? s.arrangement.map((i, k) => {
       const p = s.patterns[i];
       if (!p) return '';
-      return `<div class="arr-block" draggable="true" data-k="${k}" data-i="${i}" style="width:${Math.max(56, p.bars * 40)}px;background:${patColor(i)}">
+      return `<div class="arr-block" draggable="true" data-k="${k}" data-i="${i}" style="width:${Math.max(56, p.bars * 40)}px;background:${patColor(i)}" title="Click to edit · double-click to rename · drag to reorder">
         <span>${patLetter(i)}</span><small>${esc(p.name)}</small><button class="x" title="Remove">✕</button></div>`;
     }).join('') : '<div class="arr-empty">The song is empty — click patterns above to build it. (Song mode plays the selected pattern until then.)</div>';
     const bars = arr.reduce((a, i) => a + s.patterns[i].bars, 0);

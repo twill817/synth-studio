@@ -187,3 +187,12 @@ fieldset label { color: var(--text); }
 #expStatus { min-height: 18px; }
 
 .toast { position: fixed; bottom: 210px; left: 50%; transform: translateX(-50%); background: #000c; padding: 8px 14px; border-radius: 6px; z-index: 50; pointer-events: none; transition: opacity .3s; }
+
+/* Inline rename */
+.edit { width: 20px; height: 20px; padding: 0; font-size: 11px; background: transparent; border-color: transparent; color: var(--muted); opacity: 0; flex: none; }
+.track-item:hover .edit, .pattern-item:hover .edit, .arr-pat:hover .edit, .edit:focus-visible { opacity: 1; }
+.edit:hover { color: var(--accent); background: transparent; border-color: transparent; }
+.arr-pat { display: inline-flex; align-items: center; gap: 4px; }
+.inline-edit { width: 100%; min-width: 60px; background: #0e1014; border: 1px solid var(--accent); border-radius: 4px; padding: 1px 4px; color: var(--text); font: inherit; outline: none; }
+.arr-block .inline-edit { font-size: 11px; }
+@media (hover: none) { .edit { opacity: 1; } }
