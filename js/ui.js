@@ -166,6 +166,7 @@ const UI = {
     $('#btnUndo').onclick = () => App.undo();
     $('#btnRedo').onclick = () => App.redo();
     $('#btnNew').onclick = () => this.newProject();
+    $('#btnDemo').onclick = () => this.loadDemo();
     $('#btnSave').onclick = () => this.saveProject();
     $('#btnOpen').onclick = () => $('#fileOpen').click();
     $('#fileOpen').onchange = async (e) => {
@@ -211,6 +212,16 @@ const UI = {
     App.resetSelection();
     this.renderAll();
     undoToast('Started a new game project');
+  },
+  loadDemo() {
+    Seq.stop();
+    App.pushUndo();
+    App.replaceProject(demoProject(), true);
+    App.resetSelection();
+    this.setMode('pattern', false);
+    this.renderAll();
+    toast('Opened the demo game. Your previous project is one Undo away (↶ or Ctrl+Z) — use Save first if you want to keep it.', 8000,
+      { label: 'Undo', fn: () => App.undo() });
   },
   saveProject() { download(App.projectBlob(), safeName(App.project.name) + '.synth.json'); toast('Project saved to your downloads'); },
   importMIDI(ab, fname) {
