@@ -23,8 +23,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
    npm install
    ```
 3. Tell Claude about it:
-   - **Claude Code in this folder:** nothing to do — `.mcp.json` registers it. Approve “synth-studio” when Claude Code asks.
-   - **Claude Code in any folder** (e.g. your Unity project):
+   - **Claude Code** (works in every folder, including your Unity project):
      ```
      claude mcp add --scope user synth-studio -- node "D:\Custom Tools\Synth\mcp\server.js"
      ```
