@@ -72,6 +72,8 @@ namespace SynthStudio
         [Tooltip("Seconds for a layer to fade fully in or out when intensity changes")]
         public float layerFadeTime = 1.5f;
         public bool playOnStart = true;
+        [Tooltip("Show on-screen buttons in Play mode to try segments, stings and intensity. Turn off for the real game.")]
+        public bool showTestControls = true;
 
         /// <summary>Name of the segment that is playing (or about to start).</summary>
         public string CurrentSegment => current != null ? current.name : null;
@@ -271,6 +273,31 @@ namespace SynthStudio
             current = null;
             activeBank = -1;
             fade = null;
+        }
+
+        // ---------------------------------------------------------------- test panel
+
+        void OnGUI()
+        {
+            if (!showTestControls || m == null) return;
+            GUILayout.BeginArea(new Rect(10, 10, 240, Screen.height - 20), GUI.skin.box);
+            GUILayout.Label(m.score + "  —  " + (current != null ? "playing " + current.name : "stopped"));
+            GUILayout.Space(6);
+            GUILayout.Label("Segments");
+            foreach (var s in m.segments)
+                if (GUILayout.Button(s.name + (string.IsNullOrEmpty(s.entrySting) ? "" : "  (via " + s.entrySting + ")"))) GoToSegment(s.name);
+            if (m.stings != null && m.stings.Length > 0)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label("Stings");
+                foreach (var s in m.stings) if (GUILayout.Button(s.name)) PlaySting(s.name);
+            }
+            GUILayout.Space(6);
+            GUILayout.Label("Intensity " + Mathf.RoundToInt(intensity * 100) + "%");
+            intensity = GUILayout.HorizontalSlider(intensity, 0f, 1f);
+            GUILayout.Space(10);
+            if (GUILayout.Button("Stop (fade out)")) Stop(1.5f);
+            GUILayout.EndArea();
         }
 
         // ---------------------------------------------------------------- lookups
