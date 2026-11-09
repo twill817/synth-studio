@@ -61,7 +61,7 @@ function makeTrack(role, name) {
     rev: role.type === 'drum' ? 0.08 : pre === 'pad' || pre === 'strings' ? 0.35 : 0.18,
     dly: pre === 'pluck' || pre === 'lead' ? 0.2 : role.type === 'drum' ? 0 : 0.05 };
 }
-function makePattern(name, bars = 2, kind = 'loop') { return { id: uid(), name, bars, drums: {}, notes: {}, kind, entrySting: null }; }
+function makePattern(name, bars = 2, kind = 'loop') { return { id: uid(), name, bars, drums: {}, notes: {}, kind, entrySting: null, origins: {} }; }
 function makeScore(name, style = App.project.style) {
   return { id: uid(), name, bpm: style.bpm, swing: 0, key: style.key, scale: style.scale, tracks: [], patterns: [], arrangement: [], mix: null,
     layers: [{ id: 'base', name: 'Base' }], adaptive: { quant: 'bar' } };
@@ -77,6 +77,7 @@ function layerGainAt(song, t, intensity) {
 
 function ensurePattern(pat, song = App.song) {
   const steps = pat.bars * 16;
+  pat.origins = pat.origins || {};
   song.tracks.forEach((t) => {
     if (t.type === 'drum') {
       pat.drums[t.id] = pat.drums[t.id] || {};

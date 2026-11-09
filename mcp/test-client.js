@@ -1,15 +1,17 @@
 /* End-to-end check: starts two copies of the server the way Claude Code and Claude Desktop would
    (the second relays through the first), waits for a Synth Studio page to connect, then calls
-   every tool through both.  Run:  npm test   (with Synth Studio open and "Connect Claude" on). */
+   every tool through both.  Run:  npm test   (with Synth Studio open at http://127.0.0.1:47699/). */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// Tests use their own port so they never touch a real Claude session (open http://127.0.0.1:47699/ to test).
+const TEST_PORT = process.env.TEST_PORT || '47699';
 const open = async (name) => {
   const c = new Client({ name, version: '1.0.0' });
-  await c.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(here, 'server.js')], stderr: 'inherit' }));
+  await c.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(here, 'server.js')], stderr: 'inherit', env: { ...process.env, SYNTH_STUDIO_PORT: TEST_PORT } }));
   return c;
 };
 const call = async (c, name, args = {}) => {

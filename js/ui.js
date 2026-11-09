@@ -1216,6 +1216,11 @@ const UI = {
     $('#kbdTarget').textContent = t ? '→ ' + t.name : '';
   },
   keyDown(m, on) { const el = $(`#keyboard [data-m="${m}"]`); if (el) el.classList.toggle('down', on); },
+  /* Switch the workspace tab (used when Claude edits something, so the user sees it). */
+  showView(view) {
+    const b = $(`#tabs button[data-view="${view}"]`);
+    if (b && this.view !== view) b.click();
+  },
   /* Claude link button: off → "Connect Claude"; waiting → looking for the MCP server; connected. */
   setBridge(state, note = '') {
     const b = $('#btnClaude');

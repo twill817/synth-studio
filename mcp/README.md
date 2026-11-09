@@ -42,7 +42,30 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | `get_project` | Game style (roles, mix), themes, flavors, every score's segments/stings/layers |
 | `get_score` | One level in detail: tracks, layers, patterns, links to themes, arrangement |
 | `get_pattern` | A pattern's notes (`1.1.1 A4 1/4 v100`) and drum lines (`X...x...|…`) |
+| **Composing** | |
+| `write_notes` | Melody / bass / chords in readable notation (`1.1.1 [A3 C4 E4] 1/2 v90`, dotted `1/4.`, triplet `1/8t`) |
+| `write_drums` | Drum lines (`X...x...`) and/or a preset beat |
+| `generate_part` | Chords, bass, arps or a riff that follow the key and a progression |
+| `transform_notes` | Transpose, octave, quantize, velocity |
+| `insert_theme` / `save_theme` / `reapply_theme` | Use the game's themes in any level (fitted to its key), save new ones, refresh every linked use |
+| **Structure** | |
+| `create_score` / `set_score` | New level (from the style, or a copy) / key, tempo, swing, when segment changes land |
+| `add_pattern` / `set_pattern` / `delete_pattern` | Segments and stings, length, entry stings |
+| `set_arrangement` | Song order |
+| `set_layers` | Intensity layers and which tracks are on each |
+| `add_track` / `set_track` / `remove_track` | Tracks, mixer settings, mute/solo, layer |
+| **Sound & consistency** | |
+| `set_sound` | Change a sound for one level (`scope: level`) or the whole game (`scope: game_style` — reports every score it reaches) |
+| `sound_scope` | Customize / revert / promote a track's sound |
+| `manage_role` | Add, rename, remove (unused) game-style roles |
+| `set_mix` | A level's own mix, or the shared game mix (reports which levels it reaches) |
+| `flavor` | Apply or save a level flavor |
+
+Every editing call is **one Undo step** in the app and **all-or-nothing**: if anything in a request is invalid, nothing changes. The app opens what was edited so you can see and hear it.
 
 ## Testing
 
-With Synth Studio open and **Connect Claude** on: `npm test` (starts two copies of the server, like both Claude apps, and calls every tool through both).
+Tests run on their own port (47699) so they never touch a real Claude session. Start a test, then open **http://127.0.0.1:47699/**:
+
+- `npm test` — two server copies (like both Claude apps), every read tool through both.
+- `node test-edit.js` — builds a whole new level with the editing tools, checks refused requests change nothing.

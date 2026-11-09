@@ -13,8 +13,10 @@ const Bridge = {
     let on = false;
     try { on = localStorage.getItem('synthstudio.claudeLink') === 'on'; } catch (e) {}
     if (location.protocol === 'file:') { UI.setBridge('unavailable'); return; }
-    // Opened from the MCP server's own address: that's what it's for, so connect straight away.
-    const servedByClaude = location.hostname === '127.0.0.1' && +location.port === this.port;
+    // Opened from the MCP server's own address: link back to that same server (whatever its port)
+    // and connect straight away — that's what the page is there for.
+    const servedByClaude = location.hostname === '127.0.0.1' && /^\d+$/.test(location.port) && !!document.querySelector('meta[name=build]');
+    if (servedByClaude) this.port = +location.port;
     if (on || servedByClaude) this.enable(); else UI.setBridge('off');
   },
   toggle() { this.state === 'off' ? this.enable() : this.disable(); },
@@ -111,7 +113,11 @@ const MusicText = {
      number of 1/32 notes are written as sixteenths over 16, e.g. 0.9/16. */
   dur(l) {
     if (l % 16 === 0 || (l > 16 && l % 4 === 0)) return `${+(l / 16).toFixed(3)} bar${l === 16 ? '' : 's'}`;
-    if (Math.abs(l * 2 - Math.round(l * 2)) > 1e-6) return `${+l.toFixed(3)}/16`;
+    if (Math.abs(l * 2 - Math.round(l * 2)) > 1e-6) {
+      const t = l * 1.5; // triplets: three in the space of two
+      if (Math.abs(t * 2 - Math.round(t * 2)) < 1e-3) return this.dur(Math.round(t * 2) / 2) + 't';
+      return `${+l.toFixed(3)}/16`;
+    }
     let n = Math.round(l * 2), d = 32;
     const g = (a, b) => (b ? g(b, a % b) : a);
     const k = g(n, d);
