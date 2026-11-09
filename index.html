@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Synth Studio</title>
 <!-- Build number: stamped by tools/pre-commit into this tag, every ?v= below, and version.txt. -->
-<meta name="build" content="20261109171802">
+<meta name="build" content="20261109173158">
 <script>
 /* Stale-page check. Browsers may keep this page cached for a few minutes after an update.
    version.txt is always fetched fresh; if it names a newer build than this page, reload once
@@ -21,7 +21,7 @@
   }).catch(function () { /* opened as a file, or offline: nothing to check */ });
 })();
 </script>
-<link rel="stylesheet" href="styles.css?v=20261109171802">
+<link rel="stylesheet" href="styles.css?v=20261109173158">
 </head>
 <body>
 <header id="topbar">
@@ -46,6 +46,7 @@
   </div>
   <canvas id="scope" width="160" height="34" title="Output"></canvas>
   <div class="filebar">
+    <button id="btnClaude" class="claude-btn">Connect Claude</button>
     <button id="btnUndo" title="Undo (Ctrl+Z)">↶</button>
     <button id="btnRedo" title="Redo (Ctrl+Y)">↷</button>
     <button id="btnNew" title="Start a blank game project">New</button>
@@ -250,18 +251,19 @@
 <input type="file" id="fileOpen" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
 <input type="file" id="fileSample" accept="audio/*" hidden>
 
-<script src="js/presets.js?v=20261109171802"></script>
-<script src="js/audio.js?v=20261109171802"></script>
-<script src="js/export.js?v=20261109171802"></script>
-<script src="js/unity.js?v=20261109171802"></script>
-<script src="js/app.js?v=20261109171802"></script>
-<script src="js/themes.js?v=20261109171802"></script>
-<script src="js/ui.js?v=20261109171802"></script>
-<script src="js/roll.js?v=20261109171802"></script>
+<script src="js/presets.js?v=20261109173158"></script>
+<script src="js/audio.js?v=20261109173158"></script>
+<script src="js/export.js?v=20261109173158"></script>
+<script src="js/unity.js?v=20261109173158"></script>
+<script src="js/app.js?v=20261109173158"></script>
+<script src="js/themes.js?v=20261109173158"></script>
+<script src="js/ui.js?v=20261109173158"></script>
+<script src="js/roll.js?v=20261109173158"></script>
+<script src="js/bridge.js?v=20261109173158"></script>
 <script>
 /* Safety net: if the app can't start (e.g. a half-updated page), say so and offer a clean reload
    instead of leaving a broken screen. */
-try { App.init(); UI.init(); initMIDI(); }
+try { App.init(); UI.init(); initMIDI(); Bridge.init(); }
 catch (err) {
   console.error(err);
   var bar = document.createElement('div');

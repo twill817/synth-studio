@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "synth-studio": {
+      "command": "node",
+      "args": ["mcp/server.js"]
+    }
+  }
+}

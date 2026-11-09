@@ -131,6 +131,7 @@ const UI = {
     $('#swing').value = s.swing;
     $('#songKey').value = s.key;
     $('#songScale').value = s.scale;
+    if (typeof Bridge !== 'undefined') Bridge.notify();
     this.renderScores();
     this.renderAddTrack();
     this.renderStyle();
@@ -163,6 +164,7 @@ const UI = {
     $$('#modeSeg button').forEach((b) => (b.onclick = () => this.setMode(b.dataset.mode)));
     $('#btnLoop').onclick = (e) => { App.loopSong = !App.loopSong; e.target.classList.toggle('on', App.loopSong); };
     $('#btnMetro').onclick = (e) => { App.metro = !App.metro; e.target.classList.toggle('on', App.metro); };
+    $('#btnClaude').onclick = () => Bridge.toggle();
     $('#btnUndo').onclick = () => App.undo();
     $('#btnRedo').onclick = () => App.redo();
     $('#btnNew').onclick = () => this.newProject();
@@ -1214,6 +1216,18 @@ const UI = {
     $('#kbdTarget').textContent = t ? '→ ' + t.name : '';
   },
   keyDown(m, on) { const el = $(`#keyboard [data-m="${m}"]`); if (el) el.classList.toggle('down', on); },
+  /* Claude link button: off → "Connect Claude"; waiting → looking for the MCP server; connected. */
+  setBridge(state, note = '') {
+    const b = $('#btnClaude');
+    b.hidden = state === 'unavailable'; // opened as a file: browsers block the link
+    b.className = 'claude-btn ' + state;
+    b.textContent = { off: 'Connect Claude', waiting: 'Claude: waiting…', connected: '● Claude connected' }[state] || '';
+    b.title = {
+      off: 'Let Claude (Claude Code or Claude Desktop with the Synth Studio MCP server) read and edit this project. Every change appears here and can be undone.',
+      waiting: `${note ? note + '. ' : ''}Looking for the Synth Studio MCP server on this computer — it runs while Claude Code or Claude Desktop is open with it set up. Click to stop.`,
+      connected: 'Claude can read and edit this project; every change appears here and can be undone. Click to disconnect.',
+    }[state] || '';
+  },
   setMidiStatus(n) { $('#midiStatus').textContent = n ? `· ${n} MIDI input${n > 1 ? 's' : ''} connected` : ''; },
 
   /* ---------- export ---------- */

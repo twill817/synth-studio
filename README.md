@@ -53,6 +53,10 @@ Setup and import settings: [unity/README.md](unity/README.md).
 - **Playing & recording** – on-screen keyboard, computer keyboard (A W S E D F T G Y H U J K O L P, Z/X octave), Web MIDI keyboards. Press ● to record into the playing pattern (optional quantize). Metronome and swing.
 - **Export** – WAV (16/24/32-bit float), MP3 (128–320 kbps; first use needs internet to load the encoder), per-track stems, Standard MIDI file, project file (.json). **Open** loads projects or imports MIDI files.
 
+## Working with Claude (MCP)
+
+`mcp/` holds an MCP server that lets Claude Code or Claude Desktop work in your open Synth Studio page — click **Connect Claude** in the top bar. Setup: [mcp/README.md](mcp/README.md).
+
 ## Publishing updates
 
 The live site is served by GitHub Pages from `main`. Before committing a change that will be pushed, run:

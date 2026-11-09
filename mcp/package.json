@@ -1,0 +1,19 @@
+{
+  "name": "synth-studio-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server that lets Claude (Claude Code / Claude Desktop) work in an open Synth Studio page.",
+  "type": "module",
+  "main": "server.js",
+  "bin": { "synth-studio-mcp": "server.js" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-client.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "ws": "8.22.0",
+    "zod": "4.6.7"
+  }
+}
