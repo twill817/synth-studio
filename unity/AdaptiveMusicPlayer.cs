@@ -98,6 +98,9 @@ namespace SynthStudio
         {
             if (manifest == null) { Debug.LogError("[AdaptiveMusicPlayer] No manifest assigned.", this); enabled = false; return; }
             m = JsonUtility.FromJson<MusicManifest>(manifest.text);
+#if UNITY_EDITOR
+            RefreshClipsFromManifestFolder(); // pick up any WAVs a re-export added
+#endif
             foreach (var c in clips)
             {
                 if (c == null) continue;
@@ -274,6 +277,42 @@ namespace SynthStudio
             activeBank = -1;
             fade = null;
         }
+
+        // ---------------------------------------------------------------- editor: keep Clips in step
+
+#if UNITY_EDITOR
+        // Fill Clips with the WAVs in the manifest's own folder, so re-exports that add or remove
+        // segments need no manual dragging. Runs when the component loads or is edited (outside Play
+        // mode), on entering Play mode, and from the component's ⋮ menu.
+        void OnValidate()
+        {
+            if (Application.isPlaying) return;
+            UnityEditor.EditorApplication.delayCall += () => { if (this != null) RefreshClipsFromManifestFolder(); };
+        }
+
+        [ContextMenu("Refresh Clips from manifest folder")]
+        public void RefreshClipsFromManifestFolder()
+        {
+            if (manifest == null) return;
+            string manifestPath = UnityEditor.AssetDatabase.GetAssetPath(manifest);
+            if (string.IsNullOrEmpty(manifestPath)) return;
+            string dir = Path.GetDirectoryName(manifestPath).Replace('\\', '/');
+            var found = new List<AudioClip>();
+            foreach (var guid in UnityEditor.AssetDatabase.FindAssets("t:AudioClip", new[] { dir }))
+            {
+                string p = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                if (Path.GetDirectoryName(p).Replace('\\', '/') != dir) continue; // this folder only
+                var clip = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>(p);
+                if (clip != null) found.Add(clip);
+            }
+            found.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+            bool same = clips != null && clips.Length == found.Count && found.TrueForAll(c => Array.IndexOf(clips, c) >= 0);
+            if (same) return;
+            UnityEditor.Undo.RecordObject(this, "Refresh music clips");
+            clips = found.ToArray();
+            UnityEditor.EditorUtility.SetDirty(this);
+        }
+#endif
 
         // ---------------------------------------------------------------- test panel
 

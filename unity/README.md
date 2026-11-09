@@ -22,7 +22,9 @@ You get:
    - **Load Type:** *Decompress On Load* for short loops, *Compressed In Memory* for long ones
    - **Compression Format:** *Vorbis* (or *PCM*) — **not MP3**, which adds gaps at loop points
    - **Preload Audio Data:** on
-3. Add **Adaptive Music Player** to a GameObject in the level. Drag the score's `manifest.json` into **Manifest** and all of that score's WAVs into **Clips**.
+3. Add **Adaptive Music Player** to a GameObject in the level and drag the score's `manifest.json` into **Manifest**. **Clips** fills itself with the WAVs in that folder (and keeps up when a re-export adds or removes segments). To force it: the component's ⋮ menu → *Refresh Clips from manifest folder*.
+
+> With the Synth Studio MCP server, Claude can export straight into the project (`export_unity`) — no zip or dragging; re-exports update files in place so scene references stay connected.
 
 ## 3. Drive it from gameplay
 

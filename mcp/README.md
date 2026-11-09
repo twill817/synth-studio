@@ -60,6 +60,10 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | `manage_role` | Add, rename, remove (unused) game-style roles |
 | `set_mix` | A level's own mix, or the shared game mix (reports which levels it reaches) |
 | `flavor` | Apply or save a level flavor |
+| **Production** | |
+| `check_consistency` | Drift and mistakes across the game, by severity, each with a fix: off-style keys/tempos, empty segments, silent or empty layers, muted tracks, out-of-scale notes, unused roles/themes, themes missing from levels, theme uses that drifted |
+| `analyze` | Loudness (LUFS) and peaks per segment and sting; quiet/loud contrast per level; clipping |
+| `export_unity` | Render and write straight into a Unity project's `Assets`. Reuses the existing export folder and player script, keeps `.meta` files (scene references survive), removes files for deleted segments. `dry_run` previews every change; the project path is remembered |
 
 Every editing call is **one Undo step** in the app and **all-or-nothing**: if anything in a request is invalid, nothing changes. The app opens what was edited so you can see and hear it.
 
@@ -69,3 +73,4 @@ Tests run on their own port (47699) so they never touch a real Claude session. S
 
 - `npm test` — two server copies (like both Claude apps), every read tool through both.
 - `node test-edit.js` — builds a whole new level with the editing tools, checks refused requests change nothing.
+- `node test-production.js <scratch folder>` — consistency check, analysis, and exports into a throwaway Unity-like folder (with its own settings file, so the real remembered project is never touched).

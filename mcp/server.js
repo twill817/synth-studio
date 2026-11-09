@@ -73,6 +73,7 @@ class Link {
       const web = http.createServer(serveApp);
       const wss = new WebSocketServer({
         server: web,
+        maxPayload: 1024 * 1024 * 1024, // Unity exports carry whole WAV files
         // Browsers always send an Origin; local tools (a relaying server) send none.
         verifyClient: ({ origin }) => !origin || ALLOWED_ORIGINS.some((r) => r.test(origin)),
       });
@@ -126,7 +127,7 @@ class Link {
 
   relay() {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${PORT}`, { maxPayload: 1024 * 1024 * 1024 });
       ws.once('open', () => { ws.send(JSON.stringify({ type: 'hello', role: 'relay' })); this.upstream = ws; resolve(); });
       ws.once('error', reject);
       ws.on('message', (buf) => {
@@ -315,6 +316,111 @@ edit('set_mix', 'Change the master mix', 'Change the master mix: scope "level" g
 
 edit('flavor', 'Apply or save a flavor', 'A flavor is a reusable set of level customizations (custom sounds + mix). "apply" makes the score use that flavor (other tracks return to the game style); "save" stores the score\'s current customizations as a named flavor.',
   { score: scoreRef, action: z.enum(['apply', 'save']), flavor: z.string().optional(), name: z.string().optional() }, 'flavor');
+
+/* ---------------------------------------------------------------- production tools (step 3) */
+// Remembers the last Unity project exported to (kept next to this file, not committed).
+// Tests point SYNTH_STUDIO_CONFIG elsewhere so they never change the real setting.
+const CONFIG_FILE = process.env.SYNTH_STUDIO_CONFIG || path.join(path.dirname(fileURLToPath(import.meta.url)), '.local-config.json');
+const loadConfig = () => { try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch { return {}; } };
+const saveConfig = (c) => { try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(c, null, 2)); } catch (e) { log('could not save config', e.message); } };
+function findUnder(dir, test, depth = 0, out = []) {
+  if (depth > 10) return out;
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (test(e)) out.push(p);
+    if (e.isDirectory() && !e.name.startsWith('.')) findUnder(p, test, depth + 1, out);
+  }
+  return out;
+}
+
+/* Render in the app, then write into <Unity project>/Assets. Reuses an existing export folder and an
+   existing AdaptiveMusicPlayer.cs (a second copy would stop Unity compiling). Overwrites in place so
+   Unity's .meta files — and the references in scenes — survive. Removes WAVs/manifests a score no
+   longer has (with their .meta). dry_run reports all of that without writing. */
+async function exportUnity(p) {
+  const proj = p.unity_project || loadConfig().unityProject;
+  if (!proj) throw new Error('Which Unity project? Give unity_project: the folder that contains Assets and ProjectSettings. It\'s remembered for next time.');
+  const projAbs = path.resolve(proj), assets = path.join(projAbs, 'Assets');
+  if (!fs.existsSync(assets) || !fs.existsSync(path.join(projAbs, 'ProjectSettings'))) throw new Error(`“${projAbs}” doesn't look like a Unity project (it needs Assets and ProjectSettings folders).`);
+
+  const res = await link.call('renderUnity', {
+    scope: p.scope || 'score', score: p.score,
+    targetLufs: p.loudness_lufs === undefined ? -16 : p.loudness_lufs, sampleRate: p.sample_rate || 48000, bits: p.bits || 16,
+  }, 600000);
+
+  const existingRoot = findUnder(assets, (e) => e.isDirectory() && e.name === res.root)[0];
+  const destRoot = p.folder ? path.resolve(assets, p.folder, res.root)
+    : existingRoot || path.join(assets, ...(fs.existsSync(path.join(assets, '_Project')) ? ['_Project', 'Audio', 'Music'] : ['Music']), res.root);
+  if (!destRoot.startsWith(assets + path.sep)) throw new Error('folder must be inside the Unity project\'s Assets.');
+  const scripts = findUnder(assets, (e) => e.isFile() && e.name === 'AdaptiveMusicPlayer.cs');
+
+  const added = [], updated = [], removed = [], writes = [];
+  let unchanged = 0;
+  for (const f of res.files) {
+    const rel = f.path.split('/').slice(1);
+    const dest = rel.join('/') === 'AdaptiveMusicPlayer.cs' && scripts.length ? scripts[0] : path.join(destRoot, ...rel);
+    const data = Buffer.from(f.data, 'base64');
+    if (fs.existsSync(dest)) {
+      if (fs.readFileSync(dest).equals(data)) { unchanged++; continue; }
+      updated.push(dest);
+    } else added.push(dest);
+    writes.push([dest, data]);
+  }
+  for (const sc of res.scores) {
+    const dir = path.join(destRoot, sc.folder);
+    if (!fs.existsSync(dir)) continue;
+    const keep = new Set(res.files.filter((f) => f.path.split('/')[1] === sc.folder).map((f) => f.path.split('/').slice(2).join('/')));
+    for (const name of fs.readdirSync(dir)) if ((name.endsWith('.wav') || name === 'manifest.json') && !keep.has(name)) removed.push(path.join(dir, name));
+  }
+
+  const rel = (x) => path.relative(projAbs, x).split(path.sep).join('/');
+  const summary = {
+    unityProject: projAbs,
+    folder: rel(destRoot),
+    scores: res.scores.map((s) => ({ score: s.score, segments: s.segments, stings: s.stings, loudness: s.loudness })),
+    added: added.map(rel), updated: updated.map(rel), unchangedFiles: unchanged, removed: removed.map(rel),
+    playerScript: scripts.length
+      ? rel(scripts[0]) + (scripts.length > 1 ? ` — WARNING: ${scripts.length} copies found (${scripts.map(rel).join(', ')}); Unity needs exactly one` : '')
+      : res.hasScript ? rel(path.join(destRoot, 'AdaptiveMusicPlayer.cs')) : 'not included (the app was opened as a file)',
+  };
+  saveConfig({ ...loadConfig(), unityProject: projAbs }); // a confirmed Unity project: remember it (preview or not)
+  if (p.dry_run) return { preview: true, nothingWritten: true, ...summary };
+
+  for (const [dest, data] of writes) { fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, data); }
+  for (const x of removed) { fs.rmSync(x, { force: true }); fs.rmSync(x + '.meta', { force: true }); }
+  return { ...summary, next: 'Switch to Unity: it reimports the changes. Updated files keep their .meta, so scene references stay connected, and the player refreshes its Clips list from the manifest\'s folder by itself.' };
+}
+
+server.registerTool('check_consistency', {
+  title: 'Check the game for drift and mistakes',
+  description: 'Reviews the whole game (or one score) and lists issues by severity — problem (breaks the export or the game), check (probably unintended), note (worth knowing) — each with where it is and how to fix it. Covers: levels far from the style\'s key/tempo, empty segments, layers with no tracks or silent in a segment, muted tracks (left out of exports), notes outside the level\'s scale, unused roles/themes, themes missing from some levels, linked theme uses that drifted from the theme, stings nothing leads into, and each level\'s flavor. Run it after a batch of changes and before exporting.',
+  inputSchema: { score: z.string().optional().describe('Only this score; omit for the whole game.') },
+  annotations: { readOnlyHint: true },
+}, forward('checkConsistency'));
+
+server.registerTool('analyze', {
+  title: 'Analyze loudness and peaks',
+  description: 'Renders each segment (all layers on) and sting and reports loudness (LUFS) and peak level, before export normalization: the loudest segment per level, the quiet/loud contrast within a level, clipping, and how levels compare. Takes a few seconds per level.',
+  inputSchema: { score: z.string().optional().describe('Only this score; omit for every level.') },
+  annotations: { readOnlyHint: true },
+}, async (params) => { try { return text(await link.call('analyze', camel(params), 300000)); } catch (e) { return fail(e); } });
+
+server.registerTool('export_unity', {
+  title: 'Export to the Unity project',
+  description: 'Renders the adaptive music (one seamless-loop stem per segment × layer, stings, manifest.json, AdaptiveMusicPlayer.cs) and writes it straight into a Unity project\'s Assets — updating an existing export folder and player script in place (keeping .meta files so scene references survive), and removing files for segments that no longer exist. Use dry_run first to show the user exactly what would be added, updated and removed. This writes into another project: follow that project\'s own rules (for example, get the user\'s OK before writing).',
+  inputSchema: {
+    scope: z.enum(['score', 'all']).optional().describe('One score (default) or every score in the game.'),
+    score: z.string().optional().describe('For scope "score": which one (default: the open score).'),
+    unity_project: z.string().optional().describe('Unity project folder (contains Assets and ProjectSettings). Remembered after the first export.'),
+    folder: z.string().optional().describe('Folder inside Assets for the export (default: reuse the existing export folder; otherwise _Project/Audio/Music or Music).'),
+    loudness_lufs: z.number().nullable().optional().describe('Loudness target for each level\'s loudest segment (default −16; null = don\'t match).'),
+    sample_rate: z.number().optional(), bits: z.number().optional(),
+    dry_run: z.boolean().optional().describe('Report what would change without writing anything.'),
+  },
+  annotations: { readOnlyHint: false, destructiveHint: true },
+}, async (params) => { try { return text(await exportUnity(params)); } catch (e) { return fail(e); } });
 
 /* ---------------------------------------------------------------- start */
 await link.start();
