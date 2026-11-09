@@ -93,7 +93,7 @@ function setParam(g, param, value, instant) {
 }
 
 function applyMaster(g, song, instant) {
-  const m = App.project.style.mix; // the master chain is shared by every score in the game
+  const m = song.mix || App.project.style.mix; // shared by every score, unless a level customizes it
   setParam(g, g.low.gain, m.low, instant);
   setParam(g, g.mid.gain, m.mid, instant);
   setParam(g, g.high.gain, m.high, instant);

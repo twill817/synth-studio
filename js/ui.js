@@ -423,10 +423,11 @@ const UI = {
   renderScores() {
     const many = App.project.scores.length > 1;
     $('#scoreList').innerHTML = App.project.scores.map((s, i) => {
-      const custom = s.tracks.filter((t) => t.sound).length;
+      const custom = s.tracks.filter((t) => t.sound).length + (s.mix ? 1 : 0);
+      const what = [s.tracks.filter((t) => t.sound).length ? `${s.tracks.filter((t) => t.sound).length} custom sound(s)` : '', s.mix ? 'custom mix' : ''].filter(Boolean).join(' + ');
       return `<div class="score-item ${i === App.project.current ? 'sel' : ''}" data-i="${i}" title="Double-click name to rename">
         <span class="name">${esc(s.name)}</span><button class="edit" data-act="rename" title="Rename score">✎</button>
-        ${custom ? `<span class="flavor" title="${custom} track${custom > 1 ? 's' : ''} with a level-specific sound">✦${custom}</span>` : ''}
+        ${custom ? `<span class="flavor" title="Level flavor: ${what}">✦${custom}</span>` : ''}
         ${many ? '<button class="x" data-act="del" title="Delete score">✕</button>' : ''}
       </div>`;
     }).join('');
@@ -713,21 +714,29 @@ const UI = {
     const mx = $('#mixer');
     wire(mx, (el) => {
       const strip = el.closest('.strip');
-      if (strip.dataset.id === 'master') return { obj: App.style.mix, after: () => Engine.master() };
+      if (strip.dataset.id === 'master') return { obj: App.song.mix || App.style.mix, after: () => Engine.master() };
       const t = App.track(strip.dataset.id);
       return { obj: t, after: () => Engine.track(t) };
     });
     mx.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-act]');
       if (!b) return;
-      const t = App.track(b.closest('.strip').dataset.id);
+      const act = b.dataset.act, s = App.song;
       App.pushUndo();
-      t[b.dataset.act] = !t[b.dataset.act];
-      Engine.tracksAll(); this.renderMixer(); this.renderTracks(); App.changed();
+      if (act === 'mixCustom') { s.mix = clone(App.style.mix); toast(`${s.name} now has its own mix. The game style's mix is unchanged.`, 3000); }
+      else if (act === 'mixRevert') { s.mix = null; undoToast(`${s.name} is back on the game style's mix`); }
+      else if (act === 'mixPromote') { App.style.mix = clone(s.mix); s.mix = null; undoToast(`The game style's mix now matches ${s.name}`); }
+      else {
+        const t = App.track(b.closest('.strip').dataset.id);
+        t[act] = !t[act];
+        Engine.tracksAll(); this.renderMixer(); this.renderTracks(); App.changed();
+        return;
+      }
+      Engine.master(); this.renderMixer(); this.renderScores(); this.renderStyle(); App.changed();
     });
   },
   renderMixer() {
-    const s = App.song, m = App.style.mix;
+    const s = App.song, m = s.mix || App.style.mix;
     $('#mixer').innerHTML = s.tracks.map((t) => `
       <div class="strip" data-id="${t.id}" style="--c:${t.color}">
         <h4 title="${esc(t.name)}">${esc(t.name)}</h4>
@@ -743,7 +752,12 @@ const UI = {
       </div>`).join('') + `
       <div class="strip master" data-id="master" style="--c:var(--accent)">
         <h4>Master</h4>
-        <div class="scope style" title="The master chain is part of the game style: every score shares it, so all levels sit at the same loudness and character.">game style · all scores</div>
+        ${s.mix
+          ? `<div class="scope level" title="Only ${esc(s.name)} uses this mix">custom for this level</div>
+             <button data-act="mixRevert" class="small-btn">Revert to game style</button>
+             <button data-act="mixPromote" class="small-btn" title="Use this mix for every score that shares the game style">Make this the game style</button>`
+          : `<div class="scope style" title="The master chain is part of the game style: every score shares it, so all levels sit at the same loudness and character.">game style · all scores</div>
+             <button data-act="mixCustom" class="small-btn" title="Give ${esc(s.name)} its own master mix — e.g. bigger reverb for a cave">Customize for this level</button>`}
         ${ctl('Volume', 'vol', m.vol, 0, 1.5, 0.01, 'pct')}
         <div class="section">EQ</div>
         ${ctl('Low', 'low', m.low, -12, 12, 0.5, 'db')}
@@ -994,6 +1008,44 @@ const UI = {
         this.renderStyle(); this.renderAddTrack(); this.renderInst(); this.renderKeyboard(); App.changed();
         return toast(`Added role “${r.name}”. Add it to a score from the sidebar's Track menu.`);
       }
+      if (act === 'saveFlavor') {
+        App.pushUndo();
+        const f = { id: uid(), name: App.song.name.replace(/^Level \d+\s*[—-]\s*/, '') || 'Flavor', ...Flavors.ofScore() };
+        App.project.flavors.push(f);
+        this.renderStyle(); App.changed();
+        return toast(`Saved flavor “${f.name}”: ${Flavors.summary(f)}`, 3500);
+      }
+      const thRow = e.target.closest('.theme-row');
+      if (thRow) {
+        const th = Themes.find(thRow.dataset.tid);
+        if (act === 'playTheme') Themes.preview(th);
+        else if (act === 'renameTheme') this.renameItem(thRow, th, () => Roll.renderThemeBar());
+        else if (act === 'delTheme') {
+          App.pushUndo();
+          App.project.themes = App.project.themes.filter((x) => x !== th);
+          this.renderStyle(); Roll.renderThemeBar(); App.changed();
+          undoToast(`Deleted theme “${th.name}” (notes already in scores stay)`);
+        }
+        return;
+      }
+      const fRow = e.target.closest('.flavor-row');
+      if (fRow) {
+        const f = App.project.flavors.find((x) => x.id === fRow.dataset.fid);
+        if (act === 'renameFlavor') this.renameItem(fRow, f);
+        else if (act === 'applyFlavor') {
+          App.pushUndo();
+          Flavors.apply(f);
+          Engine.master();
+          this.renderAll(); App.changed();
+          undoToast(`${App.song.name} now uses the “${f.name}” flavor`);
+        } else if (act === 'delFlavor') {
+          App.pushUndo();
+          App.project.flavors = App.project.flavors.filter((x) => x !== f);
+          this.renderStyle(); App.changed();
+          undoToast(`Deleted flavor “${f.name}” (levels using it keep their sounds)`);
+        }
+        return;
+      }
       const row = e.target.closest('.role-row');
       if (!row) return;
       const r = App.role(row.dataset.id);
@@ -1020,6 +1072,14 @@ const UI = {
       App.pushUndo();
       App.style[k] = k === 'scale' ? e.target.value : k === 'bpm' ? clamp(Math.round(+e.target.value || 120), 40, 260) : +e.target.value;
       App.changed(); this.renderStyle();
+    });
+  },
+  /* Inline-rename anything with a .name element and a `name` field (themes, flavors). */
+  renameItem(row, obj, after) {
+    inlineRename($('.name', row), obj.name, (v) => {
+      if (v) { App.pushUndo(); obj.name = v; App.changed(); }
+      this.renderStyle();
+      if (after) after();
     });
   },
   renameRole(id) {
@@ -1053,6 +1113,34 @@ const UI = {
         </div>
       </section>
       <section class="style-sec">
+        <h4 class="subhead">Themes</h4>
+        <p class="muted">The game's recurring melodies and progressions. Save one from the Piano Roll (“Save as theme”), then insert it into any level — it's moved into that level's key, and can be slowed down, sped up or shifted an octave.</p>
+        <div class="role-list">${App.project.themes.map((th) => {
+          const n = Themes.usage(th.id);
+          return `<div class="theme-row" data-tid="${th.id}">
+            <button class="play-mini" data-act="playTheme" title="Hear it">▶</button>
+            <span class="name">${esc(th.name)}</span><button class="edit" data-act="renameTheme" title="Rename theme">✎</button>
+            <span class="snd">${NOTE_NAMES[th.key]} ${esc(SCALES[th.scale].name.toLowerCase())} · ${th.bars} bar${th.bars > 1 ? 's' : ''} · ${th.notes.length} notes</span>
+            <span class="muted use">${n ? `used ${n} time${n > 1 ? 's' : ''}` : 'not used yet'}</span>
+            <button class="x" data-act="delTheme" title="Delete theme (notes already in scores stay)">✕</button>
+          </div>`;
+        }).join('') || '<p class="muted">No themes yet.</p>'}</div>
+      </section>
+      <section class="style-sec">
+        <h4 class="subhead">Flavors</h4>
+        <p class="muted">A flavor is a level's set of customizations — its custom instrument sounds (✦) and mix — saved so another level can use the same feel.</p>
+        <div class="role-list">${App.project.flavors.map((f) => `
+          <div class="flavor-row" data-fid="${f.id}">
+            <span class="name">${esc(f.name)}</span><button class="edit" data-act="renameFlavor" title="Rename flavor">✎</button>
+            <span class="muted use">${esc(Flavors.summary(f))}</span>
+            ${Flavors.matches(f) ? '<span class="scope level">in use here</span>'
+              : `<button data-act="applyFlavor" title="Use this flavor in ${esc(App.song.name)} (replaces its current customizations)">Apply to this level</button>`}
+            <button class="x" data-act="delFlavor" title="Delete flavor">✕</button>
+          </div>`).join('') || '<p class="muted">No flavors yet.</p>'}</div>
+        ${Flavors.hasCustom() && App.project.flavors.some((f) => Flavors.matches(f)) ? ''
+          : Flavors.hasCustom() ? `<button data-act="saveFlavor" title="Save ${esc(App.song.name)}'s custom sounds and mix as a reusable flavor">Save this level's flavor</button>` : `<p class="muted">${esc(App.song.name)} uses the plain game style. Customize a track's sound or the mix for this level, then save it here as a flavor.</p>`}
+      </section>
+      <section class="style-sec">
         <h4 class="subhead">Defaults for new scores</h4>
         <div class="row gap wrap">
           <label>Key <select data-def="key">${opt(NOTE_NAMES.map((n, i) => [i, n]), st.key)}</select></label>
@@ -1063,7 +1151,7 @@ const UI = {
       </section>
       <section class="style-sec">
         <h4 class="subhead">Mix</h4>
-        <p class="muted">The master EQ, compressor, reverb and delay (Mixer &amp; FX tab) belong to the game style, so every score shares them. Track levels, panning and sends stay per score.</p>
+        <p class="muted">The master EQ, compressor, reverb and delay (Mixer &amp; FX tab) belong to the game style, so every score shares them — unless a level customizes its mix there. Track levels, panning and sends stay per score.</p>
       </section>`;
   },
 

@@ -119,6 +119,25 @@
         <label><input type="checkbox" id="recQuant" checked> Quantize recording</label>
         <span class="hint">Click empty = add · drag = move · drag right edge = resize · right-click = delete · Shift-drag = box select · Del = delete selected</span>
       </div>
+      <div class="toolbar sub" id="themeBar">
+        <span class="tb-label" title="The game's recurring melodies and progressions — Game Style tab lists them all">Themes</span>
+        <span id="themeInsert" class="row gap wrap">
+          <select id="themeSel" aria-label="Theme"></select>
+          <label title="Move the theme into this score's key and scale">
+            <input type="checkbox" id="themeFit" checked> Fit to key</label>
+          <label>Octave <select id="themeOct"><option value="-2">−2</option><option value="-1">−1</option><option value="0" selected>0</option><option value="1">+1</option><option value="2">+2</option></select></label>
+          <label>Speed <select id="themeSpeed"><option value="0.5">Double speed</option><option value="1" selected>Normal</option><option value="2">Half speed</option></select></label>
+          <button id="btnThemeInsert" title="Replace this track's notes in the pattern with the theme (stays linked to it)">Insert</button>
+          <button id="btnThemeAdd" title="Add the theme on top of the existing notes">Add on top</button>
+          <button id="btnThemePlay" title="Hear the theme">▶</button>
+        </span>
+        <button id="btnThemeSave" title="Save these notes (or the selected ones) as a game theme">Save as theme</button>
+        <span id="themeLinked" class="theme-link">
+          <span class="muted">Linked to</span> <b id="themeLinkName"></b>
+          <button id="btnThemeReapply" title="Rewrite these notes from the theme's current version">Re-apply theme</button>
+          <button id="btnThemeUpdate" title="Store these notes as the theme's new version">Update theme from these notes</button>
+        </span>
+      </div>
       <div id="rollWrap" class="roll-wrap">
         <div class="roll-inner">
           <canvas id="rollKeys"></canvas>
@@ -218,6 +237,7 @@
 <script src="js/export.js"></script>
 <script src="js/unity.js"></script>
 <script src="js/app.js"></script>
+<script src="js/themes.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/roll.js"></script>
 <script>App.init(); UI.init(); initMIDI();</script>

@@ -267,3 +267,17 @@ fieldset label { color: var(--text); }
 .track-layers { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; }
 .track-layers .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .sting-tag { color: #ffc46b; font-size: 11px; flex: none; }
+
+/* Themes & flavors */
+.theme-row { display: grid; grid-template-columns: 26px minmax(110px, 1fr) 20px 200px 1fr 22px; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; background: #1a1d23; }
+.flavor-row { display: grid; grid-template-columns: minmax(90px, 160px) 20px 1fr auto 22px; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; background: #1a1d23; }
+.theme-row:hover .edit, .flavor-row:hover .edit { opacity: 1; }
+.theme-row .name, .flavor-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.theme-row .snd { font-size: 12px; }
+.flavor-row .use, .theme-row .use { font-size: 11px; }
+.flavor-row button:not(.x):not(.edit) { font-size: 11px; padding: 2px 8px; }
+.play-mini { width: 24px; height: 22px; padding: 0; font-size: 10px; }
+.tb-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #ffc46b; }
+.theme-link { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 12px; background: #2a2416; }
+.theme-link button { font-size: 11px; padding: 2px 8px; }
+.small-btn { font-size: 10px; padding: 2px 6px; }

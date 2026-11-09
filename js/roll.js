@@ -31,8 +31,9 @@ const Roll = {
     $('#btnLoopInsert').onclick = () => this.insertLoop();
     $('#btnRollClear').onclick = () => {
       const t = this.track(); if (!t) return;
-      App.pushUndo(); App.pattern().notes[t.id] = []; this.sel.clear(); this.draw(); App.changed();
+      App.pushUndo(); App.pattern().notes[t.id] = []; delete App.pattern().origins[t.id]; this.sel.clear(); this.draw(); App.changed();
     };
+    this.initThemes();
     $('#btnTransUp').onclick = () => this.transpose(1);
     $('#btnTransDown').onclick = () => this.transpose(-1);
     $('#btnQuant').onclick = () => {
@@ -52,6 +53,67 @@ const Roll = {
       const p = this.hi - Math.floor((e.clientY - r.top) / this.rowH);
       this.audition(p);
     });
+  },
+
+  /* ---------- themes ---------- */
+  themeOpts() { return { oct: +$('#themeOct').value, speed: +$('#themeSpeed').value, fit: $('#themeFit').checked }; },
+  origin() { const t = this.track(); const o = t && App.pattern().origins[t.id]; return o && Themes.find(o.theme) ? o : null; },
+  initThemes() {
+    const go = (mode) => {
+      const t = this.track(), th = Themes.find($('#themeSel').value);
+      if (!t || !th) return;
+      App.pushUndo();
+      const n = Themes.insert(th, t, App.pattern(), this.themeOpts(), mode);
+      this.sel.clear(); this.scrollToNotes(); App.changed(); UI.renderStyle();
+      toast(`${mode === 'add' ? 'Added' : 'Inserted'} “${th.name}” (${n} notes)${this.themeOpts().fit ? ` in ${NOTE_NAMES[App.song.key]} ${SCALES[App.song.scale].name}` : ''}`);
+    };
+    $('#btnThemeInsert').onclick = () => go('replace');
+    $('#btnThemeAdd').onclick = () => go('add');
+    $('#btnThemePlay').onclick = () => { const th = Themes.find($('#themeSel').value); if (th) Themes.preview(th); };
+    $('#btnThemeSave').onclick = () => {
+      const t = this.track(), ns = this.notes();
+      if (!t || !ns || !ns.length) return;
+      const src = this.sel.size ? [...this.sel] : ns;
+      App.pushUndo();
+      const th = Themes.capture(`${App.pattern().name} ${t.name}`, src, t);
+      if (!this.sel.size) App.pattern().origins[t.id] = { theme: th.id, oct: 0, speed: 1, fit: true };
+      this.renderThemeBar(); $('#themeSel').value = th.id; UI.renderStyle(); App.changed();
+      toast(`Saved theme “${th.name}” — rename or hear it in Game Style → Themes`, 3500);
+    };
+    $('#btnThemeReapply').onclick = () => {
+      const t = this.track(), o = this.origin();
+      if (!o) return;
+      App.pushUndo();
+      Themes.insert(Themes.find(o.theme), t, App.pattern(), { oct: o.oct, speed: o.speed, fit: o.fit }, 'replace');
+      this.sel.clear(); this.draw(); App.changed();
+      undoToast('Re-applied the theme to these notes');
+    };
+    $('#btnThemeUpdate').onclick = () => {
+      const t = this.track(), o = this.origin();
+      if (!o) return;
+      const th = Themes.find(o.theme);
+      App.pushUndo();
+      Themes.updateFrom(th, this.notes(), o);
+      const uses = Themes.usage(th.id) - 1;
+      UI.renderStyle(); this.renderThemeBar(); App.changed();
+      undoToast(`Updated “${th.name}”` + (uses > 0 ? ` — ${uses} other use${uses > 1 ? 's' : ''} keep their notes until you Re-apply there` : ''));
+    };
+  },
+  /* Show only the theme controls that apply right now. */
+  renderThemeBar() {
+    const t = this.track(), themes = App.project.themes;
+    $('#themeBar').hidden = !t;
+    if (!t) return;
+    const sel = $('#themeSel'), cur = sel.value;
+    sel.innerHTML = themes.map((th) => `<option value="${th.id}">${esc(th.name)} · ${NOTE_NAMES[th.key]} ${SCALES[th.scale].name.toLowerCase()} · ${th.bars} bar${th.bars > 1 ? 's' : ''}</option>`).join('');
+    if (themes.some((th) => th.id === cur)) sel.value = cur;
+    $('#themeInsert').hidden = !themes.length;
+    const ns = this.notes() || [];
+    $('#btnThemeSave').hidden = !ns.length;
+    const o = this.origin();
+    $('#themeLinked').hidden = !o;
+    if (o) $('#themeLinkName').textContent = Themes.find(o.theme).name + (o.speed !== 1 || o.oct ? ` (${[o.speed === 2 ? 'half speed' : o.speed === 0.5 ? 'double speed' : '', o.oct ? (o.oct > 0 ? '+' : '') + o.oct + ' oct' : ''].filter(Boolean).join(', ')})` : '');
+    if (!themes.length && !ns.length) $('#themeBar').hidden = true; // nothing to do with themes yet
   },
 
   track() { const t = App.track(); return t && t.type === 'synth' ? t : null; },
@@ -185,6 +247,7 @@ const Roll = {
     App.pushUndo();
     const gen = LOOP_GENERATORS[$('#loopGen').value];
     pat.notes[t.id] = gen({ root: App.song.key, scale: App.song.scale, bars: pat.bars, prog: $('#loopProg').value });
+    delete pat.origins[t.id]; // generated notes are no longer the theme
     this.sel.clear(); this.draw(); App.changed();
     toast(`Inserted “${$('#loopGen').value}” in ${NOTE_NAMES[App.song.key]} ${SCALES[App.song.scale].name}`);
   },
@@ -200,6 +263,7 @@ const Roll = {
 
   draw(pos) {
     if (!this.grid || UI.view !== 'roll') return;
+    if (!pos) this.renderThemeBar(); // skip during playback frames; nothing there changes
     const t = this.track();
     const pat = App.pattern();
     const steps = pat.bars * 16;

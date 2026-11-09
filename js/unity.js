@@ -15,8 +15,8 @@ const UnityExport = {
   /* ---------- rendering ---------- */
   stepSeconds(song) { return 60 / song.bpm / 4; },
   /* How long effects ring after a note stops — used to warm a loop up to its steady state. */
-  tailSeconds() {
-    const m = App.style.mix;
+  tailSeconds(song) {
+    const m = (song && song.mix) || App.style.mix;
     const echo = m.dlyFb > 0.05 ? Math.log(0.001) / Math.log(m.dlyFb) * (DELAY_DIVS[m.dlyDiv] || 0.75) * 0.6 : 0;
     return Math.min(12, Math.max(m.revSize, echo) + 1.5);
   },
@@ -25,7 +25,7 @@ const UnityExport = {
   async renderLoop(song, pi, only, sr) {
     const pat = song.patterns[pi];
     const loopSec = pat.bars * 16 * this.stepSeconds(song);
-    const warm = Math.max(1, Math.ceil(this.tailSeconds() / loopSec));
+    const warm = Math.max(1, Math.ceil(this.tailSeconds(song) / loopSec));
     const buf = await renderBlocks(song, new Array(warm + 1).fill(pi), { tail: 0, sampleRate: sr, only, start: 0 });
     const L = Math.round(loopSec * sr), from = warm * L;
     const chs = [0, 1].map((c) => buf.getChannelData(c).slice(from, from + L));
@@ -34,7 +34,7 @@ const UnityExport = {
   async renderSting(song, pi, sr) {
     const pat = song.patterns[pi];
     const musical = Math.round(pat.bars * 16 * this.stepSeconds(song) * sr);
-    const buf = await renderBlocks(song, [pi], { tail: this.tailSeconds(), sampleRate: sr, only: (t) => !t.mute, start: 0 });
+    const buf = await renderBlocks(song, [pi], { tail: this.tailSeconds(song), sampleRate: sr, only: (t) => !t.mute, start: 0 });
     // Trim trailing silence after the musical end.
     const chs = [0, 1].map((c) => buf.getChannelData(c));
     let end = chs[0].length;

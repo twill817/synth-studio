@@ -63,7 +63,7 @@ function makeTrack(role, name) {
 }
 function makePattern(name, bars = 2, kind = 'loop') { return { id: uid(), name, bars, drums: {}, notes: {}, kind, entrySting: null }; }
 function makeScore(name, style = App.project.style) {
-  return { id: uid(), name, bpm: style.bpm, swing: 0, key: style.key, scale: style.scale, tracks: [], patterns: [], arrangement: [],
+  return { id: uid(), name, bpm: style.bpm, swing: 0, key: style.key, scale: style.scale, tracks: [], patterns: [], arrangement: [], mix: null,
     layers: [{ id: 'base', name: 'Base' }], adaptive: { quant: 'bar' } };
 }
 /* Intensity layers: base is always on; layer i (i ≥ 1) fades in as intensity rises.
@@ -111,6 +111,9 @@ function duplicateScore(src, name) {
     Object.keys(p.drums).forEach((k) => { if (map[k]) d[map[k]] = p.drums[k]; });
     Object.keys(p.notes).forEach((k) => { if (map[k]) n[map[k]] = p.notes[k]; });
     p.drums = d; p.notes = n;
+    const o = {};
+    Object.keys(p.origins || {}).forEach((k) => { if (map[k]) o[map[k]] = p.origins[k]; });
+    p.origins = o;
   });
   return s;
 }
@@ -194,7 +197,24 @@ function demoProject() {
   S2.notes[b2.id] = [{ s: 0, l: 16, p: scaleNote(L2.key, SCALES[L2.scale].steps, 0, 1), v: 0.9 }];
   D.entrySting = S2.id;
 
-  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [L1, L2], current: 0 };
+  // A game-wide theme, used in both levels — fitted to each level's key.
+  const main = { id: uid(), name: 'Main Theme', key: 9, scale: 'minor', bars: 2, role: R.Lead.id, notes: [
+    [0, 4, 69], [4, 2, 72], [6, 2, 76], [8, 4, 74], [12, 2, 72], [14, 2, 71],
+    [16, 6, 69], [22, 2, 64], [24, 4, 67], [28, 4, 69]].map(([s, l, p]) => ({ s, l, p, v: 0.8 })) };
+  const use = (song, pat, track, opts) => {
+    pat.notes[track.id] = Themes.render(main, { key: song.key, scale: song.scale, bars: pat.bars, ...opts });
+    pat.origins = { ...(pat.origins || {}), [track.id]: { theme: main.id, ...opts } };
+  };
+  use(L1, A, l1, { oct: 0, speed: 1, fit: true });          // Meadow Explore: theme on the lead (Intensity layer)
+  use(L2, D, l2, { oct: 0, speed: 1, fit: true });          // Ice Caves Danger: same theme, now in D minor
+  use(L2, E, k2, { oct: 0, speed: 2, fit: true });          // Ice Caves Explore: theme at half speed on the bells
+
+  // Ice Caves' look-and-feel as a reusable flavor: bell keys, dark pad, bigger darker reverb.
+  L2.mix = { ...DEFAULT_MIX, revSize: 4.5, revLevel: 1.2, high: -4 };
+  const ice = { id: uid(), name: 'Ice', sounds: {}, mix: clone(L2.mix) };
+  L2.tracks.forEach((t) => { if (t.sound) ice.sounds[t.role] = clone(t.sound); });
+
+  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [L1, L2], current: 0, themes: [main], flavors: [ice] };
 }
 
 /* Older saves were a single song with sounds on each track: wrap them in a project,
@@ -247,6 +267,8 @@ const App = {
   },
   migrate(p) {
     p.style.mix = Object.assign({ ...DEFAULT_MIX }, p.style.mix || {});
+    p.themes = p.themes || [];
+    p.flavors = p.flavors || [];
     p.style.roles.forEach((r) => { if (r.type === 'synth') r.synth = Object.assign({}, SYNTH_PRESETS[r.preset] || SYNTH_PRESETS.piano, r.synth); });
     p.current = clamp(p.current || 0, 0, p.scores.length - 1);
     p.scores.forEach((s) => {
@@ -254,7 +276,12 @@ const App = {
       s.arrangement = s.arrangement || [];
       s.layers = s.layers && s.layers.length ? s.layers : [{ id: 'base', name: 'Base' }];
       s.adaptive = Object.assign({ quant: 'bar' }, s.adaptive || {});
-      s.patterns.forEach((p) => { p.kind = p.kind || 'loop'; if (p.entrySting === undefined) p.entrySting = null; });
+      s.mix = s.mix ? Object.assign({ ...DEFAULT_MIX }, s.mix) : null;
+      s.patterns.forEach((p) => {
+        p.kind = p.kind || 'loop'; if (p.entrySting === undefined) p.entrySting = null;
+        p.origins = p.origins || {};
+        Object.keys(p.origins).forEach((k) => { if (!p.origins[k] || !p.origins[k].theme) delete p.origins[k]; });
+      });
       s.tracks.forEach((t) => { if (!s.layers.some((l) => l.id === t.layer)) t.layer = s.layers[0].id; });
       s.tracks.forEach((t) => { if (t.sound && t.sound.synth) t.sound.synth = Object.assign({}, SYNTH_PRESETS[t.sound.preset] || SYNTH_PRESETS.piano, t.sound.synth); });
       ensureAll(s);
