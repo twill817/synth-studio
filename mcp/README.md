@@ -9,8 +9,10 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 ```
 
 - The server runs on your computer while a Claude app is open. If both Claude apps run it, the first hosts the link and the second relays through it; if the first closes, the second takes over.
-- The page only connects when you click **Connect Claude** in its top bar (remembered for next time). It shows **● Claude connected** when linked.
-- Only the real Synth Studio pages may connect: `https://twill817.github.io` or a local copy on `localhost`.
+- The server also serves Synth Studio itself at **http://127.0.0.1:47615/**. Open that address to work with Claude: it connects automatically, and browsers allow it without asking.
+- The public site (`https://twill817.github.io/synth-studio/`) can connect too with **Connect Claude**, but browsers may block a website from reaching your computer or ask permission first.
+- Projects saved in the browser are kept per address — use **Save** and **Open** to move work between the public site and the local one.
+- Only the real Synth Studio pages may connect: `https://twill817.github.io` or a copy on `localhost`/`127.0.0.1`.
 
 ## Setup (once)
 
@@ -31,7 +33,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
      "synth-studio": { "command": "node", "args": ["D:\\Custom Tools\\Synth\\mcp\\server.js"] }
      ```
      then restart Claude Desktop.
-4. Open Synth Studio, click **Connect Claude**. If the browser asks to allow access to devices on your local network, choose **Allow**.
+4. With a Claude app open, go to **http://127.0.0.1:47615/** in Chrome or Edge. The top bar shows **● Claude connected**.
 
 ## Tools so far
 

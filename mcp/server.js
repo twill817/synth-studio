@@ -15,6 +15,31 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import { z } from 'zod';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// The Synth Studio app files (the repo root, one level up). The server also serves them at
+// http://127.0.0.1:PORT/ — page and link on the same local address, so browsers never block the link.
+const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const LOCAL_URL = `http://127.0.0.1:${Number(process.env.SYNTH_STUDIO_PORT || 47615)}/`;
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.cs': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+function serveApp(req, res) {
+  const url = new URL(req.url, 'http://127.0.0.1');
+  let rel = decodeURIComponent(url.pathname);
+  if (rel.endsWith('/')) rel += 'index.html';
+  const file = path.resolve(APP_ROOT, '.' + rel);
+  const inside = file.startsWith(APP_ROOT + path.sep);
+  const hidden = path.relative(APP_ROOT, file).split(path.sep).some((p) => p.startsWith('.') || p === 'node_modules');
+  if (req.method !== 'GET' || !inside || hidden || !MIME[path.extname(file)] || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); return;
+  }
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)], 'Cache-Control': 'no-cache' });
+  fs.createReadStream(file).pipe(res);
+}
 
 const PORT = Number(process.env.SYNTH_STUDIO_PORT || 47615);
 const APP_URL = 'https://twill817.github.io/synth-studio/';
@@ -45,13 +70,23 @@ class Link {
 
   host() {
     return new Promise((resolve, reject) => {
+      const web = http.createServer(serveApp);
       const wss = new WebSocketServer({
-        host: '127.0.0.1', port: PORT,
+        server: web,
         // Browsers always send an Origin; local tools (a relaying server) send none.
         verifyClient: ({ origin }) => !origin || ALLOWED_ORIGINS.some((r) => r.test(origin)),
       });
-      wss.once('error', reject);
-      wss.once('listening', () => { wss.on('error', (e) => log('link error', e.message)); resolve(); });
+      // The WebSocket layer re-emits the HTTP server's errors (e.g. "port in use"); handle both,
+      // or Node treats it as an unhandled error and the process exits instead of relaying.
+      let settled = false;
+      const onStartError = (e) => { if (!settled) { settled = true; wss.close(); reject(e); } };
+      web.once('error', onStartError);
+      wss.on('error', (e) => (settled ? log('link error', e.message) : onStartError(e)));
+      web.listen(PORT, '127.0.0.1', () => {
+        settled = true;
+        web.on('error', (e) => log('link error', e.message));
+        resolve();
+      });
       wss.on('connection', (ws, req) => this.accept(ws, req));
     });
   }
@@ -109,6 +144,7 @@ class Link {
 
   status() {
     return {
+      appAddress: LOCAL_URL,
       linkHostedHere: this.mode === 'primary',
       appConnected: !!this.page,
       page: this.pageInfo && this.page ? { url: this.pageInfo.url, build: this.pageInfo.build, game: this.pageInfo.game, score: this.pageInfo.score } : null,
@@ -133,9 +169,10 @@ class Link {
 }
 
 const NOT_CONNECTED =
-  `Synth Studio isn't connected. Ask the user to: (1) open ${APP_URL} (or their local copy) in Chrome or Edge, ` +
-  `(2) click “Connect Claude” in the top bar so it shows “Claude connected”. If the browser asks to allow access to ` +
-  `devices on the local network, they should choose Allow.`;
+  `Synth Studio isn't connected. Ask the user to open ${LOCAL_URL} in Chrome or Edge (this server hosts the app there) ` +
+  `and click “Connect Claude” in the top bar so it shows “● Claude connected”. ` +
+  `(The public site ${APP_URL} can also connect, but some browsers block or ask permission for a website to reach this computer.) ` +
+  `Projects saved in the browser are kept per address — to move work between the two, use Save and Open.`;
 
 /* ---------------------------------------------------------------- MCP tools */
 const link = new Link();

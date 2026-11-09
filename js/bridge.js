@@ -13,7 +13,9 @@ const Bridge = {
     let on = false;
     try { on = localStorage.getItem('synthstudio.claudeLink') === 'on'; } catch (e) {}
     if (location.protocol === 'file:') { UI.setBridge('unavailable'); return; }
-    if (on) this.enable(); else UI.setBridge('off');
+    // Opened from the MCP server's own address: that's what it's for, so connect straight away.
+    const servedByClaude = location.hostname === '127.0.0.1' && +location.port === this.port;
+    if (on || servedByClaude) this.enable(); else UI.setBridge('off');
   },
   toggle() { this.state === 'off' ? this.enable() : this.disable(); },
   enable() {
