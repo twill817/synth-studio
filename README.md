@@ -53,6 +53,16 @@ Setup and import settings: [unity/README.md](unity/README.md).
 - **Playing & recording** – on-screen keyboard, computer keyboard (A W S E D F T G Y H U J K O L P, Z/X octave), Web MIDI keyboards. Press ● to record into the playing pattern (optional quantize). Metronome and swing.
 - **Export** – WAV (16/24/32-bit float), MP3 (128–320 kbps; first use needs internet to load the encoder), per-track stems, Standard MIDI file, project file (.json). **Open** loads projects or imports MIDI files.
 
+## Publishing updates
+
+The live site is served by GitHub Pages from `main`. Before committing a change that will be pushed, run:
+
+```
+sh tools/stamp-build.sh
+```
+
+It stamps a new build number into `index.html`'s file links and `version.txt`. Browsers then always load matching files after an update, and a page that's older than the published build reloads itself once. If the app ever fails to start, it shows a **Reload** message instead of a blank screen.
+
 ## Shortcuts
 
 Space play/stop · Enter stop · R record · M metronome · 1–0 drum pads · Ctrl+Z / Ctrl+Y undo/redo · Ctrl+S save · Del delete selected notes · Ctrl+A select all notes (piano roll)

@@ -4,7 +4,24 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Synth Studio</title>
-<link rel="stylesheet" href="styles.css">
+<!-- Build number: stamped by tools/pre-commit into this tag, every ?v= below, and version.txt. -->
+<meta name="build" content="20261109171802">
+<script>
+/* Stale-page check. Browsers may keep this page cached for a few minutes after an update.
+   version.txt is always fetched fresh; if it names a newer build than this page, reload once
+   under a new address so the browser fetches the current page and its matching files. */
+(function () {
+  var mine = document.querySelector('meta[name=build]').content;
+  fetch('version.txt', { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : null; }).then(function (txt) {
+    var latest = txt && txt.trim();
+    if (!latest || latest === mine) return;
+    var key = 'synthstudio.reloadedFor';
+    try { if (sessionStorage.getItem(key) === latest) return; sessionStorage.setItem(key, latest); } catch (e) { return; }
+    location.replace(location.pathname + '?build=' + encodeURIComponent(latest));
+  }).catch(function () { /* opened as a file, or offline: nothing to check */ });
+})();
+</script>
+<link rel="stylesheet" href="styles.css?v=20261109171802">
 </head>
 <body>
 <header id="topbar">
@@ -233,14 +250,27 @@
 <input type="file" id="fileOpen" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
 <input type="file" id="fileSample" accept="audio/*" hidden>
 
-<script src="js/presets.js"></script>
-<script src="js/audio.js"></script>
-<script src="js/export.js"></script>
-<script src="js/unity.js"></script>
-<script src="js/app.js"></script>
-<script src="js/themes.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/roll.js"></script>
-<script>App.init(); UI.init(); initMIDI();</script>
+<script src="js/presets.js?v=20261109171802"></script>
+<script src="js/audio.js?v=20261109171802"></script>
+<script src="js/export.js?v=20261109171802"></script>
+<script src="js/unity.js?v=20261109171802"></script>
+<script src="js/app.js?v=20261109171802"></script>
+<script src="js/themes.js?v=20261109171802"></script>
+<script src="js/ui.js?v=20261109171802"></script>
+<script src="js/roll.js?v=20261109171802"></script>
+<script>
+/* Safety net: if the app can't start (e.g. a half-updated page), say so and offer a clean reload
+   instead of leaving a broken screen. */
+try { App.init(); UI.init(); initMIDI(); }
+catch (err) {
+  console.error(err);
+  var bar = document.createElement('div');
+  bar.className = 'start-error';
+  bar.innerHTML = '<b>Synth Studio couldn’t start.</b> This usually means it was just updated. ' +
+    '<button type="button">Reload</button><br><small>Your work is saved in this browser and will still be there.</small>';
+  bar.querySelector('button').onclick = function () { location.replace(location.pathname + '?build=' + Date.now()); };
+  document.body.prepend(bar);
+}
+</script>
 </body>
 </html>

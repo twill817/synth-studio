@@ -281,3 +281,8 @@ fieldset label { color: var(--text); }
 .theme-link { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 12px; background: #2a2416; }
 .theme-link button { font-size: 11px; padding: 2px 8px; }
 .small-btn { font-size: 10px; padding: 2px 6px; }
+
+/* Startup safety net */
+.start-error { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 100; background: #3d1d22; border: 1px solid var(--rec); color: var(--text); padding: 12px 16px; border-radius: 8px; max-width: 520px; line-height: 1.5; box-shadow: 0 8px 30px #0008; }
+.start-error button { margin-left: 8px; background: var(--rec); border-color: var(--rec); color: #fff; font-weight: 600; }
+.start-error small { color: var(--muted); }
