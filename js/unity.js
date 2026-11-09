@@ -142,13 +142,15 @@ const UnityExport = {
     const scores = opts.scope === 'all' ? App.project.scores : [App.song];
     const out = [];
     for (const s of scores) out.push(await this.buildScore(s, opts, progress));
-    let script = null;
-    try { const r = await fetch('unity/AdaptiveMusicPlayer.cs', { cache: 'no-cache' }); if (r.ok) script = new Uint8Array(await r.arrayBuffer()); } catch (e) { /* file:// — skip */ }
+    const scripts = [];
+    for (const name of ['AdaptiveMusicPlayer.cs', 'MusicCues.cs']) {
+      try { const r = await fetch('unity/' + name, { cache: 'no-cache' }); if (r.ok) scripts.push({ name, data: new Uint8Array(await r.arrayBuffer()) }); } catch (e) { /* file:// — skip */ }
+    }
     const root = safeName(App.project.name) + '_Music';
     const entries = [];
     out.forEach((sc) => sc.files.forEach((f) => entries.push({ path: `${root}/${sc.folder}/${f.name}`, data: f.data })));
-    if (script) entries.push({ path: `${root}/AdaptiveMusicPlayer.cs`, data: script });
-    return { root, entries, scores: out, hasScript: !!script };
+    scripts.forEach((s) => entries.push({ path: `${root}/${s.name}`, data: s.data }));
+    return { root, entries, scores: out, hasScript: scripts.length > 0 };
   },
 
   /* Write into a folder the user picks (Chrome/Edge), e.g. the Unity project's Assets folder. */

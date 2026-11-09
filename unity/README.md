@@ -44,6 +44,21 @@ public class LevelMusic : MonoBehaviour
 ```
 
 - Segment and sting names are the pattern names from Synth Studio.
+- `music.SetDucked(true, 0.3f)` turns the music down (pause menu, slow motion, dialogue) and `SetDucked(false)` back up; it keeps playing in time, and fades use real time so they work while the game is paused.
+
+### No-code cues: MusicCues
+
+Add **Music Cues** next to the player and fill its table in the Inspector — each row is a cue name and what the music does:
+
+| Name | Action | Target / Value |
+|---|---|---|
+| RunStarted | Go To Segment | Explore |
+| EnemySpotted | Go To Segment | Action (plays its entry sting first) |
+| ClockLow | Set Intensity | 1 |
+| Paused / Resumed | Duck 0.3 / Unduck | |
+| RunOver | Play Sting | Finish |
+
+Fire a cue from code — `cues.Trigger("RunStarted")` — or with no code from any UnityEvent (buttons, triggers, timelines): pick **MusicCues → Trigger** and type the name. The game decides *when*; the table decides *what the music does*, so it can be re-tuned without code. Typos are flagged in the Console (cue targets are checked against the manifest).
 - If a segment has an entry sting, `GoToSegment` plays it first, then the segment.
 - `intensity` and `volume` are also on the component, so you can test in Play mode from the Inspector.
 - Everything is scheduled on the audio clock, so changes stay on the beat regardless of frame rate.

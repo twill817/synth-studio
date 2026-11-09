@@ -77,6 +77,12 @@ namespace SynthStudio
 
         /// <summary>Name of the segment that is playing (or about to start).</summary>
         public string CurrentSegment => current != null ? current.name : null;
+        public bool IsPlaying => current != null;
+
+        /// <summary>Segment and sting names in the manifest (works in the editor before Play, too).</summary>
+        public string[] SegmentNames() { var mm = ReadManifest(); return mm == null ? new string[0] : Array.ConvertAll(mm.segments, s => s.name); }
+        public string[] StingNames() { var mm = ReadManifest(); return mm == null || mm.stings == null ? new string[0] : Array.ConvertAll(mm.stings, s => s.name); }
+        MusicManifest ReadManifest() => m ?? (manifest != null ? JsonUtility.FromJson<MusicManifest>(manifest.text) : null);
 
         MusicManifest m;
         readonly Dictionary<string, AudioClip> clipByName = new Dictionary<string, AudioClip>();
@@ -85,6 +91,7 @@ namespace SynthStudio
         int activeBank = -1, nextSting;
         float[] layerLevel;
         float master = 1f;
+        float duck = 1f, duckTarget = 1f, duckSeconds = 0.3f;
 
         MusicSegment current;
         double segmentStart;            // dspTime the current segment's loop started (may be in the future)
@@ -155,6 +162,14 @@ namespace SynthStudio
         public void PlaySting(string sting) { if (current != null) Request(current.name, sting); }
 
         public void SetIntensity(float value) => intensity = Mathf.Clamp01(value);
+
+        /// <summary>Turn the music down (e.g. paused, slow motion, dialogue) and back up, smoothly.
+        /// level: how loud while ducked (0–1). The music keeps playing in time.</summary>
+        public void SetDucked(bool ducked, float level = 0.35f, float seconds = 0.3f)
+        {
+            duckTarget = ducked ? Mathf.Clamp01(level) : 1f;
+            duckSeconds = Mathf.Max(0.01f, seconds);
+        }
 
         public void Stop(float fadeSeconds = 1f)
         {
@@ -238,11 +253,14 @@ namespace SynthStudio
         void Update()
         {
             if (m == null) return;
+            // Unscaled time: fades keep working while the game is paused (timeScale 0) or in slow motion.
+            duck = Mathf.MoveTowards(duck, duckTarget, Time.unscaledDeltaTime / duckSeconds);
+            foreach (var s in stingSources) s.volume = volume * master * duck;
             float step = layerFadeTime > 0f ? Time.unscaledDeltaTime / layerFadeTime : 1f;
             for (int i = 0; i < layerLevel.Length; i++)
             {
                 layerLevel[i] = Mathf.MoveTowards(layerLevel[i], TargetLevel(i), step);
-                float v = layerLevel[i] * volume * master;
+                float v = layerLevel[i] * volume * master * duck;
                 banks[0][i].volume = v;
                 banks[1][i].volume = v;
             }

@@ -65,6 +65,18 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | `analyze` | Loudness (LUFS) and peaks per segment and sting; quiet/loud contrast per level; clipping |
 | `export_unity` | Render and write straight into a Unity project's `Assets`. Reuses the existing export folder and player script, keeps `.meta` files (scene references survive), removes files for deleted segments. `dry_run` previews every change; the project path is remembered |
 
+### Workflow prompts
+
+Ready-made recipes for whole jobs — in Claude Code type `/mcp__synth-studio__…`, in Claude Desktop use the **+** (attach) menu:
+
+| Prompt | What Claude does |
+|---|---|
+| `compose_segment` (moment, score, bars) | Writes a new adaptive segment for a game moment in the soundtrack's style: drums, shared progression, a game theme, every layer contributing, an entry sting if it's a sudden change; checks consistency; tells you how to listen |
+| `ship_to_unity` (scope, unity_project) | Follows the Unity project's rules → consistency check → loudness analysis → export preview → **your OK** → export → reads the Unity console |
+| `wire_music_in_unity` (scene, unity_project) | Plans the Unity side — a Music object with AdaptiveMusicPlayer + MusicCues, a cue table mapping the game's events to music, the smallest listener script — and only after **your OK** builds and Play-tests it (with the Unity MCP) |
+
+The full chain uses this server **and** the Unity MCP (`mcp-for-unity`, installed in the Unity project and registered in your Claude app).
+
 Every editing call is **one Undo step** in the app and **all-or-nothing**: if anything in a request is invalid, nothing changes. The app opens what was edited so you can see and hear it.
 
 ## Testing

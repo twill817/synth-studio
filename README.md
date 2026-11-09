@@ -7,10 +7,10 @@ A browser-based instrumental music workstation. Everything (synths, drums, effec
 Double-click `index.html`, or serve the folder (recommended, needed for Web MIDI in some browsers):
 
 ```
-python -m http.server 8765
+python -m http.server 8775
 ```
 
-then open http://localhost:8765. Chrome or Edge work best.
+then open http://localhost:8775. Chrome or Edge work best. (Avoid 8765 if you also run Dead Derby: its web tuning panel uses it.)
 
 ## Game projects
 

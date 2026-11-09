@@ -355,12 +355,16 @@ async function exportUnity(p) {
     : existingRoot || path.join(assets, ...(fs.existsSync(path.join(assets, '_Project')) ? ['_Project', 'Audio', 'Music'] : ['Music']), res.root);
   if (!destRoot.startsWith(assets + path.sep)) throw new Error('folder must be inside the Unity project\'s Assets.');
   const scripts = findUnder(assets, (e) => e.isFile() && e.name === 'AdaptiveMusicPlayer.cs');
+  // A C# script must exist once in a Unity project: update an existing copy wherever it is;
+  // otherwise put new scripts next to the existing player script, or in the export folder.
+  const scriptHome = scripts.length ? path.dirname(scripts[0]) : destRoot;
+  const scriptDest = (name) => findUnder(assets, (e) => e.isFile() && e.name === name)[0] || path.join(scriptHome, name);
 
   const added = [], updated = [], removed = [], writes = [];
   let unchanged = 0;
   for (const f of res.files) {
     const rel = f.path.split('/').slice(1);
-    const dest = rel.join('/') === 'AdaptiveMusicPlayer.cs' && scripts.length ? scripts[0] : path.join(destRoot, ...rel);
+    const dest = rel.length === 1 && rel[0].endsWith('.cs') ? scriptDest(rel[0]) : path.join(destRoot, ...rel);
     const data = Buffer.from(f.data, 'base64');
     if (fs.existsSync(dest)) {
       if (fs.readFileSync(dest).equals(data)) { unchanged++; continue; }
@@ -381,9 +385,12 @@ async function exportUnity(p) {
     folder: rel(destRoot),
     scores: res.scores.map((s) => ({ score: s.score, segments: s.segments, stings: s.stings, loudness: s.loudness })),
     added: added.map(rel), updated: updated.map(rel), unchangedFiles: unchanged, removed: removed.map(rel),
-    playerScript: scripts.length
-      ? rel(scripts[0]) + (scripts.length > 1 ? ` — WARNING: ${scripts.length} copies found (${scripts.map(rel).join(', ')}); Unity needs exactly one` : '')
-      : res.hasScript ? rel(path.join(destRoot, 'AdaptiveMusicPlayer.cs')) : 'not included (the app was opened as a file)',
+    scripts: res.hasScript
+      ? ['AdaptiveMusicPlayer.cs', 'MusicCues.cs'].map((n) => {
+          const all = findUnder(assets, (e) => e.isFile() && e.name === n);
+          return rel(scriptDest(n)) + (all.length > 1 ? ` — WARNING: ${all.length} copies (${all.map(rel).join(', ')}); Unity needs exactly one` : '');
+        })
+      : 'not included (the app was opened as a file)',
   };
   saveConfig({ ...loadConfig(), unityProject: projAbs }); // a confirmed Unity project: remember it (preview or not)
   if (p.dry_run) return { preview: true, nothingWritten: true, ...summary };
@@ -421,6 +428,52 @@ server.registerTool('export_unity', {
   },
   annotations: { readOnlyHint: false, destructiveHint: true },
 }, async (params) => { try { return text(await exportUnity(params)); } catch (e) { return fail(e); } });
+
+/* ---------------------------------------------------------------- workflow prompts (step 4)
+   Ready-made recipes for whole jobs. Claude Code shows them as /mcp__synth-studio__<name>;
+   Claude Desktop lists them in the attach (+) menu. */
+const prompt = (name, title, description, argsSchema, build) =>
+  server.registerPrompt(name, { title, description, argsSchema }, (args) => ({ messages: [{ role: 'user', content: { type: 'text', text: build(args) } }] }));
+const PROJECT_RULES = 'Before touching a Unity project, read its CLAUDE.md (and any contributor rules it points to) and follow them — ' +
+  'e.g. tell the user the plan and get their OK first, remind them to commit, and use the branch/worktree setup it asks for. Never change a game\'s ' +
+  'existing interfaces or events without the user\'s OK; only listen to them.';
+
+prompt('compose_segment', 'Compose a segment for a game moment',
+  'Write a new adaptive segment (with layers and, if useful, an entry sting) for a moment in the game, in the style of the rest of the soundtrack.',
+  { score: z.string().optional().describe('Which level (default: the open one)'), moment: z.string().describe('The game moment, e.g. "boss fight", "chase", "calm exploration"'), bars: z.string().optional().describe('1, 2, 4 or 8 (default 4)') },
+  ({ score, moment, bars }) => `Compose a new segment in Synth Studio for this game moment: “${moment}”${score ? ` in the score “${score}”` : ' in the open score'}.
+
+1. get_project and get_score to learn the game style (roles, themes, flavors), this level's key/tempo/layers and its existing segments. Read one or two existing patterns (get_pattern) so the new one fits.
+2. add_pattern (kind segment, ${bars || 4} bars) named after the moment.
+3. Write it: drums (write_drums), bass and harmony (generate_part with ONE progression shared by every part, or write_notes), and a lead. Prefer insert_theme with a game theme (half speed for calm moments, normal or double for intense ones) so the level stays recognisably part of the game. Match the moment's energy with tempo-appropriate rhythm, register and velocity.
+4. Make sure every intensity layer has something to add in this segment (set_layers if needed), so SetIntensity works here too.
+5. If the moment is a sudden change (danger, discovery), add a 1-bar sting (add_pattern kind sting) and set it as the entry_sting.
+6. check_consistency for this score and fix any problems or checks you caused.
+7. Tell the user, in plain words, what you wrote (instruments, theme use, layers, sting) and ask them to listen: Adaptive tab → click the segment, try the intensity slider. Remind them every step can be undone in the app.`);
+
+prompt('ship_to_unity', 'Check, export and ship to Unity',
+  'Get the soundtrack ready and write it into the Unity project: consistency check, loudness analysis, a previewed export, then the export itself — following the Unity project\'s own rules.',
+  { scope: z.string().optional().describe('"score" (the open one) or "all" (default all)'), unity_project: z.string().optional().describe('Unity project folder (remembered after the first export)') },
+  ({ scope, unity_project }) => `Ship the Synth Studio soundtrack to Unity${unity_project ? ` (project: ${unity_project})` : ''}.
+
+1. ${PROJECT_RULES}
+2. check_consistency (whole game). Fix every "problem" (ask the user about anything musical). List the "checks" and ask which to fix; notes are just for information.
+3. analyze. Report each level's loudest segment, the quiet/loud contrast, and any clipping, in plain words.
+4. export_unity with dry_run: true and scope "${scope || 'all'}"${unity_project ? ` and unity_project "${unity_project}"` : ''}. Show the user exactly which files would be added, updated and removed, and where. Point out removals.
+5. Only after the user says OK: export_unity again without dry_run.
+6. Tell them what to do next: switch to Unity (it reimports; scene references survive; the player's Clips refresh themselves). If a Unity MCP is connected, read the Unity console for errors after the import and report them.`);
+
+prompt('wire_music_in_unity', 'Put the music in a Unity scene and wire it to gameplay',
+  'Plan (and, with the user\'s OK, do) the Unity side: a music object with AdaptiveMusicPlayer and MusicCues in a scene, cues fired from the game\'s existing events, then a Play-mode test.',
+  { scene: z.string().optional().describe('Scene to add the music to'), unity_project: z.string().optional() },
+  ({ scene, unity_project }) => `Plan how to put the exported Synth Studio music into the Unity game${unity_project ? ` at ${unity_project}` : ''}${scene ? `, in the scene ${scene}` : ''}, and wire it to gameplay.
+
+1. ${PROJECT_RULES}
+2. Find the export (manifest.json files, AdaptiveMusicPlayer.cs, MusicCues.cs) and the game's events (its interfaces/events docs and code). Use get_project to list each level's segments and stings.
+3. Propose, in plain words, a cue table: which game event fires which cue, and what each cue does (Go To Segment / Play Sting / Set Intensity / Duck / Unduck / Stop). Typical: start screen → calm segment; run/level start → main segment; danger or low time → higher intensity or an intense segment; pause → Duck 0.3, resume → Unduck; run over → a sting then Stop. Continuous values (danger, speed, time left) can drive SetIntensity every frame.
+4. Propose the smallest code change: one small listener script that subscribes to the existing events and calls MusicCues.Trigger(...) / SetIntensity — no changes to the game's interfaces. Say which files you'd create and where they go per the project's folder rules, and how it would be tested (the project's test conventions; keep any mapping rules pure and testable).
+5. Wait for the user's OK. Then, following the project's rules: add a "Music" GameObject with AdaptiveMusicPlayer (assign the level's manifest.json — Clips fill themselves) and MusicCues with the agreed cues; add the listener; save the scene.
+6. Test in Play mode (with a Unity MCP: enter Play mode, fire cues / simulate the events, read the console). Report what played and any warnings, and tell the user exactly how to try it themselves.`);
 
 /* ---------------------------------------------------------------- start */
 await link.start();

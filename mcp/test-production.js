@@ -52,7 +52,7 @@ const dry = await call('export_unity', { scope: 'all', unity_project: proj, dry_
 check(dry && dry.preview && !fs.readFileSync(path.join(music, 'AdaptiveMusicPlayer.cs'), 'utf8').includes('namespace SynthStudio'), 'dry run wrote nothing');
 check(dry.folder === 'Assets/My_Game_Music', `reuses the existing export folder (${dry.folder})`);
 check(dry.removed.includes('Assets/My_Game_Music/Level_1_Meadow/Verse_Base.wav'), 'dry run lists the stale WAV for removal');
-console.log(`   would add ${dry.added.length}, update ${dry.updated.length}, remove ${dry.removed.length}; player script: ${dry.playerScript}`);
+console.log(`   would add ${dry.added.length}, update ${dry.updated.length}, remove ${dry.removed.length}; scripts: ${dry.scripts}`);
 
 const ex = await call('export_unity', { scope: 'all', dry_run: false }); // project path remembered from the first call
 check(!!ex && !ex.preview, 'export ran (project path remembered)');
@@ -61,6 +61,7 @@ check(script.includes('namespace SynthStudio') && script.includes('RefreshClipsF
 const copies = [];
 (function walk(d) { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === 'AdaptiveMusicPlayer.cs') copies.push(p); } })(path.join(proj, 'Assets'));
 check(copies.length === 1, `exactly one player script in the project (${copies.length})`);
+check(fs.existsSync(path.join(music, 'MusicCues.cs')), 'MusicCues.cs placed next to the existing player script');
 check(fs.readFileSync(path.join(music, 'Level_1_Meadow', 'Explore_Base.wav.meta'), 'utf8') === 'guid: keep-me\n', '.meta of an updated WAV kept (scene references survive)');
 check(fs.readFileSync(path.join(music, 'Level_1_Meadow', 'Explore_Base.wav')).subarray(0, 4).toString() === 'RIFF', 'WAV content replaced with real audio');
 check(!fs.existsSync(path.join(music, 'Level_1_Meadow', 'Verse_Base.wav')) && !fs.existsSync(path.join(music, 'Level_1_Meadow', 'Verse_Base.wav.meta')), 'stale WAV and its .meta removed');
