@@ -28,8 +28,10 @@ function getChannels(buf, normalize) {
 }
 
 function encodeWAV(buf, bits = 16, normalize = true) {
-  const chs = getChannels(buf, normalize);
-  const nch = chs.length, len = chs[0].length, sr = buf.sampleRate;
+  return encodeWAVChannels(getChannels(buf, normalize), buf.sampleRate, bits);
+}
+function encodeWAVChannels(chs, sr, bits = 16) {
+  const nch = chs.length, len = chs[0].length;
   const float = bits === 32;
   const bps = bits / 8;
   const dataSize = len * nch * bps;

@@ -25,14 +25,19 @@ function makeNoise(ctx) {
   return b;
 }
 
+/* Seeded so every render (live, each exported stem) gets the same reverb — stems stay consistent. */
+function seededRandom(seed) {
+  return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
 function makeIR(ctx, seconds) {
   const len = Math.max(1, Math.floor(ctx.sampleRate * seconds));
   const b = ctx.createBuffer(2, len, ctx.sampleRate);
   for (let ch = 0; ch < 2; ch++) {
     const d = b.getChannelData(ch);
+    const rnd = seededRandom(1234 + ch * 7919);
     for (let i = 0; i < len; i++) {
       const t = i / len;
-      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.5) * (i < 200 ? i / 200 : 1);
+      d[i] = (rnd() * 2 - 1) * Math.pow(1 - t, 2.5) * (i < 200 ? i / 200 : 1);
     }
   }
   return b;
@@ -127,8 +132,9 @@ function removeTrackNodes(g, id) {
   delete g.tracks[id];
 }
 
+/* `only` restricts an offline render: a track id (one stem) or a predicate (e.g. one intensity layer). */
 function trackAudible(song, t, only) {
-  if (only) return t.id === only;
+  if (only) return typeof only === 'function' ? only(t) : t.id === only;
   if (t.mute) return false;
   const anySolo = song.tracks.some((x) => x.solo);
   return !anySolo || t.solo;
@@ -592,12 +598,16 @@ async function renderAudio({ source = 'song', repeats = 1, tail = 2, sampleRate 
   if (source === 'song') blocks = song.arrangement.filter((i) => song.patterns[i]);
   if (!blocks || !blocks.length) blocks = [];
   if (source !== 'song' || !blocks.length) blocks = new Array(repeats).fill(App.sel.pattern);
+  return renderBlocks(song, blocks, { tail, sampleRate, only, start: 0.02 });
+}
+/* Render any score's patterns back to back. `start` offsets the first step (seconds). */
+async function renderBlocks(song, blocks, { tail = 2, sampleRate = 44100, only = null, start = 0 } = {}) {
   const stepDur = 60 / song.bpm / 4;
   const totalSteps = blocks.reduce((a, i) => a + song.patterns[i].bars * 16, 0);
-  const dur = totalSteps * stepDur + tail;
+  const dur = start + totalSteps * stepDur + tail;
   const off = new OfflineAudioContext(2, Math.ceil(dur * sampleRate), sampleRate);
   const g = buildGraph(off, song, { only });
-  let time = 0.02;
+  let time = start;
   for (const pi of blocks) {
     const pat = song.patterns[pi];
     for (let s = 0; s < pat.bars * 16; s++) {

@@ -172,20 +172,35 @@
     <h2>Export</h2>
     <fieldset>
       <legend>Format</legend>
-      <label><input type="radio" name="fmt" value="wav16" checked> WAV — 16-bit</label>
+      <label><input type="radio" name="fmt" value="unity" checked> <span><b>Unity adaptive package</b> — stems, stings, manifest, player script</span></label>
+      <label><input type="radio" name="fmt" value="wav16"> WAV — 16-bit</label>
       <label><input type="radio" name="fmt" value="wav24"> WAV — 24-bit</label>
       <label><input type="radio" name="fmt" value="wav32"> WAV — 32-bit float</label>
-      <label><input type="radio" name="fmt" value="mp3"> MP3 — <select id="mp3Rate"><option>128</option><option selected>192</option><option>256</option><option>320</option></select> kbps</label>
+      <label><input type="radio" name="fmt" value="mp3"> MP3 <span id="mp3Opt">— <select id="mp3Rate"><option>128</option><option selected>192</option><option>256</option><option>320</option></select> kbps</span></label>
       <label><input type="radio" name="fmt" value="stems"> Stems — one WAV per track</label>
       <label><input type="radio" name="fmt" value="midi"> MIDI (.mid)</label>
       <label><input type="radio" name="fmt" value="project"> Project file (.json)</label>
     </fieldset>
-    <fieldset>
+    <fieldset id="expUnity">
+      <legend>Unity package</legend>
+      <label><input type="radio" name="uscope" value="score" checked> This score</label>
+      <label><input type="radio" name="uscope" value="all"> All scores in the game</label>
+      <label>Loudness <select id="uLufs">
+        <option value="-14">−14 LUFS (loud, mobile)</option>
+        <option value="-16" selected>−16 LUFS (typical game music)</option>
+        <option value="-18">−18 LUFS (more headroom)</option>
+        <option value="-23">−23 LUFS (broadcast / console)</option>
+        <option value="off">Don't match loudness</option></select></label>
+      <label>Sample rate <select id="uRate"><option>44100</option><option selected>48000</option></select></label>
+      <label>Bit depth <select id="uBits"><option value="16" selected>16-bit</option><option value="24">24-bit</option></select></label>
+      <label id="uFolderRow"><input type="checkbox" id="uFolder"> Save into a folder (e.g. your Unity Assets) instead of a .zip</label>
+    </fieldset>
+    <fieldset id="expSource">
       <legend>What to export</legend>
       <label><input type="radio" name="src" value="song" checked> Whole song (arrangement)</label>
       <label><input type="radio" name="src" value="pattern"> Selected pattern × <input id="expRepeats" type="number" min="1" max="64" value="4" style="width:4em"></label>
-      <label>Sample rate <select id="expRate"><option>44100</option><option>48000</option></select></label>
-      <label>Reverb tail <input id="expTail" type="number" min="0" max="10" step="0.5" value="2" style="width:4em"> s</label>
+      <label class="exp-audio">Sample rate <select id="expRate"><option>44100</option><option>48000</option></select></label>
+      <label class="exp-audio">Reverb tail <input id="expTail" type="number" min="0" max="10" step="0.5" value="2" style="width:4em"> s</label>
     </fieldset>
     <div id="expStatus" class="muted"></div>
     <div class="row end gap">
@@ -201,6 +216,7 @@
 <script src="js/presets.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/export.js"></script>
+<script src="js/unity.js"></script>
 <script src="js/app.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/roll.js"></script>

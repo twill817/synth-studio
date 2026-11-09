@@ -1120,10 +1120,23 @@ const UI = {
   /* ---------- export ---------- */
   initExport() {
     const dlg = $('#exportDlg');
-    $('#btnExport').onclick = () => { $('#expStatus').textContent = ''; dlg.showModal(); };
+    // Only show the options that apply to the chosen format.
+    const syncDlg = () => {
+      const fmt = $('input[name=fmt]:checked', dlg).value;
+      const audio = ['wav16', 'wav24', 'wav32', 'mp3', 'stems'].includes(fmt);
+      $('#expUnity').hidden = fmt !== 'unity';
+      $('#expSource').hidden = !(audio || fmt === 'midi');
+      $$('.exp-audio', dlg).forEach((el) => (el.hidden = !audio));
+      $('#mp3Opt').hidden = fmt !== 'mp3';
+      $('#uFolderRow').hidden = !window.showDirectoryPicker;
+      $('#btnDoExport').textContent = fmt === 'unity' && $('#uFolder').checked ? 'Choose folder & export' : 'Export';
+    };
+    dlg.addEventListener('change', syncDlg);
+    $('#btnExport').onclick = () => { $('#expStatus').textContent = ''; syncDlg(); dlg.showModal(); };
     $('#btnDoExport').onclick = async (e) => {
       e.preventDefault();
       const fmt = $('input[name=fmt]:checked', dlg).value;
+      if (fmt === 'unity') return this.exportUnity();
       const src = $('input[name=src]:checked', dlg).value;
       const repeats = clamp(+$('#expRepeats').value || 1, 1, 64);
       const sampleRate = +$('#expRate').value;
@@ -1164,6 +1177,40 @@ const UI = {
       }
       btn.disabled = false;
     };
+  },
+
+  async exportUnity() {
+    const dlg = $('#exportDlg'), status = $('#expStatus'), btn = $('#btnDoExport');
+    const lufs = $('#uLufs').value;
+    const opts = {
+      scope: $('input[name=uscope]:checked', dlg).value,
+      targetLufs: lufs === 'off' ? null : +lufs,
+      sampleRate: +$('#uRate').value,
+      bits: +$('#uBits').value,
+    };
+    const toFolder = $('#uFolder').checked && window.showDirectoryPicker;
+    let dir = null;
+    if (toFolder) {
+      try { dir = await window.showDirectoryPicker({ mode: 'readwrite', id: 'synthstudio-unity' }); }
+      catch (err) { status.textContent = 'No folder chosen.'; return; }
+    }
+    Seq.stop();
+    btn.disabled = true;
+    const t0 = performance.now();
+    try {
+      const res = await UnityExport.run(opts, (msg) => (status.textContent = 'Rendering ' + msg + '…'));
+      status.textContent = 'Packaging…';
+      if (dir) await UnityExport.saveToFolder(dir, res.entries);
+      else download(makeZip(res.entries), res.root + '.zip');
+      const files = res.entries.length;
+      const gains = res.scores.map((s) => `${s.manifest.score}: ${s.manifest.loudness.gainDb >= 0 ? '+' : ''}${s.manifest.loudness.gainDb} dB`).join(' · ');
+      status.textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(1)}s — ${res.scores.length} score${res.scores.length > 1 ? 's' : ''}, ${files} files${dir ? ` saved into “${dir.name}/${res.root}”` : ''}. Loudness gain: ${gains}.` +
+        (res.hasScript ? '' : ' (AdaptiveMusicPlayer.cs wasn’t included — open the app from the website or local server, not as a file.)');
+    } catch (err) {
+      console.error(err);
+      status.textContent = 'Unity export failed: ' + err.message;
+    }
+    btn.disabled = false;
   },
 
   /* ---------- shortcuts ---------- */

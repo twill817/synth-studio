@@ -29,6 +29,18 @@ The **Adaptive** tab sets up how a score responds to gameplay and lets you hear 
 - **Intensity layers** — tracks are grouped into stacked layers (e.g. Base → Rhythm → Intensity). The base always plays; each layer above fades in as intensity rises.
 - **Preview** — pick a segment, switch to another while it plays (the change lands on the next beat, bar, or segment end), and drag the intensity slider. The transport's **Adaptive** mode is this preview.
 
+## Unity export
+
+**Export → Unity adaptive package** renders one score or the whole game into a `.zip` (or straight into a folder in Chrome/Edge):
+
+- one WAV stem per segment × intensity layer — seamless loops, exactly the segment's length, effect tails wrapped into the start
+- one WAV per sting, with its natural tail
+- `manifest.json` per score (tempo, layers, segments, stings, transition rule, loudness)
+- loudness matched across scores to a LUFS target (default −16), peaks kept under −1 dBFS
+- `AdaptiveMusicPlayer.cs`, the Unity component that plays it all: `GoToSegment("Action")`, `SetIntensity(0.7f)`, `PlaySting("Alert")`, `Stop(2f)`
+
+Setup and import settings: [unity/README.md](unity/README.md).
+
 ## What's in it
 
 - **Beat** – 10-voice drum step sequencer (kick, snare, clap, hats, toms, rim, cowbell, crash), 5 synthesized kits, per-pad level/tune/decay/pan, load your own samples onto any pad, velocity accents, 10 preset beat loops.
