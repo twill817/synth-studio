@@ -7,10 +7,16 @@
                roles[],                   // the game's instrument roster, shared by every score
                mix }                      // master chain, shared by every score
    role    = { id, name, color, type:'synth', preset, synth } | { id, name, color, type:'drum', kit, voices }
-   score   = { id, name, bpm, swing, key, scale, tracks[], patterns[], arrangement[] }
+   score   = { id, name, bpm, swing, key, scale, tracks[], patterns[], arrangement[],
+               layers[],                  // adaptive intensity layers, base first: [{id, name}]
+               adaptive: { quant } }      // when a segment change happens: 'beat' | 'bar' | 'end'
    track   = { id, name, role, type, color, vol, pan, mute, solo, drive, tone, rev, dly,
+               layer,                     // id of the intensity layer this track belongs to
                sound }                    // null = use the role's sound; otherwise a per-score override
                                           // ({preset, synth} or {kit, voices}) — the level's "flavor"
+   pattern = { id, name, bars, drums, notes,
+               kind,                      // 'loop' = a segment the game can sit in; 'sting' = plays once
+               entrySting }               // id of a sting to play when the game switches to this segment
 */
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -50,14 +56,23 @@ function soundName(s) {
 
 function makeTrack(role, name) {
   const pre = role.preset || '';
-  return { id: uid(), name: name || role.name, role: role.id, type: role.type, color: role.color, sound: null,
+  return { id: uid(), name: name || role.name, role: role.id, type: role.type, color: role.color, sound: null, layer: 'base',
     vol: role.type === 'drum' ? 0.85 : 0.75, pan: 0, mute: false, solo: false, drive: 0, tone: 20000,
     rev: role.type === 'drum' ? 0.08 : pre === 'pad' || pre === 'strings' ? 0.35 : 0.18,
     dly: pre === 'pluck' || pre === 'lead' ? 0.2 : role.type === 'drum' ? 0 : 0.05 };
 }
-function makePattern(name, bars = 2) { return { id: uid(), name, bars, drums: {}, notes: {} }; }
+function makePattern(name, bars = 2, kind = 'loop') { return { id: uid(), name, bars, drums: {}, notes: {}, kind, entrySting: null }; }
 function makeScore(name, style = App.project.style) {
-  return { id: uid(), name, bpm: style.bpm, swing: 0, key: style.key, scale: style.scale, tracks: [], patterns: [], arrangement: [] };
+  return { id: uid(), name, bpm: style.bpm, swing: 0, key: style.key, scale: style.scale, tracks: [], patterns: [], arrangement: [],
+    layers: [{ id: 'base', name: 'Base' }], adaptive: { quant: 'bar' } };
+}
+/* Intensity layers: base is always on; layer i (i ≥ 1) fades in as intensity rises.
+   With n layers, intensity 0 = base only, 1 = everything. Crossfades are continuous. */
+function layerIndex(song, t) { return Math.max(0, song.layers.findIndex((l) => l.id === t.layer)); }
+function layerGainAt(song, t, intensity) {
+  const n = song.layers.length, i = layerIndex(song, t);
+  if (i === 0 || n < 2) return 1;
+  return clamp(intensity * (n - 1) - (i - 1), 0, 1);
 }
 
 function ensurePattern(pat, song = App.song) {
@@ -86,10 +101,12 @@ function applyBeat(pat, trackId, beatName) {
 function duplicateScore(src, name) {
   const s = clone(src);
   s.id = uid(); s.name = name;
-  const map = {};
+  const map = {}, pmap = {};
   s.tracks.forEach((t) => { const n = uid(); map[t.id] = n; t.id = n; });
+  s.patterns.forEach((p) => { pmap[p.id] = uid(); });
   s.patterns.forEach((p) => {
-    p.id = uid();
+    p.id = pmap[p.id];
+    if (p.entrySting) p.entrySting = pmap[p.entrySting] || null;
     const d = {}, n = {};
     Object.keys(p.drums).forEach((k) => { if (map[k]) d[map[k]] = p.drums[k]; });
     Object.keys(p.notes).forEach((k) => { if (map[k]) n[map[k]] = p.notes[k]; });
@@ -138,6 +155,16 @@ function demoProject() {
   B.notes[l1.id] = gen(L1, 'Arp: up-down', 2, 'Prog 6–4–1–5');
   C.notes[p1.id] = gen(L1, 'Chords (block)', 2, 'Prog 1–6–3–7');
   L1.arrangement = [2, 0, 0, 1, 1, 0, 1];
+  A.name = 'Explore'; B.name = 'Action';
+  // Adaptive setup: Base (harmony) → Rhythm (drums) → Intensity (lead), and a sting into Action.
+  L1.layers = [{ id: 'base', name: 'Base' }, { id: 'rhythm', name: 'Rhythm' }, { id: 'intense', name: 'Intensity' }];
+  d1.layer = 'rhythm'; l1.layer = 'intense';
+  const S1 = makePattern('Alert', 1, 'sting');
+  L1.patterns.push(S1); ensurePattern(S1, L1);
+  S1.drums[d1.id].kick[0] = 1; S1.drums[d1.id].crash[0] = 1; S1.drums[d1.id].snare = parseBeatString('........x.x.xXXX', 16);
+  S1.notes[p1.id] = chordTones({ root: L1.key, scale: L1.scale }, 5, false, 3).map((p) => ({ s: 0, l: 12, p, v: 0.8 }));
+  S1.notes[l1.id] = [0, 2, 4, 7].map((d, i) => ({ s: 8 + i * 2, l: 2, p: scaleNote(L1.key, SCALES[L1.scale].steps, d + 7, 4), v: 0.8 }));
+  B.entrySting = S1.id;
 
   // Level 2 — same roles, different flavor: colder keys (Bell override), darker pad, slower, D minor.
   const L2 = makeScore('Level 2 — Ice Caves', style);
@@ -158,6 +185,14 @@ function demoProject() {
   D.notes[p2.id] = gen(L2, 'Chords (block)', 2, 'Prog 1–6–3–7');
   D.notes[l2.id] = gen(L2, 'Arp: up', 2, 'Prog 1–6–3–7');
   L2.arrangement = [0, 0, 1, 1, 0];
+  L2.layers = [{ id: 'base', name: 'Base' }, { id: 'rhythm', name: 'Rhythm' }, { id: 'intense', name: 'Intensity' }];
+  d2.layer = 'rhythm'; b2.layer = 'rhythm'; l2.layer = 'intense';
+  const S2 = makePattern('Discovered', 1, 'sting');
+  L2.patterns.push(S2); ensurePattern(S2, L2);
+  S2.drums[d2.id].crash[0] = 1; S2.drums[d2.id].ltom = parseBeatString('x...x...x.x.xxxx', 16);
+  S2.notes[k2.id] = [0, 1, 2, 3, 4, 5, 6, 7].map((d, i) => ({ s: i * 2, l: 2, p: scaleNote(L2.key, SCALES[L2.scale].steps, 14 - d, 4), v: 0.7 }));
+  S2.notes[b2.id] = [{ s: 0, l: 16, p: scaleNote(L2.key, SCALES[L2.scale].steps, 0, 1), v: 0.9 }];
+  D.entrySting = S2.id;
 
   return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [L1, L2], current: 0 };
 }
@@ -185,7 +220,8 @@ const App = {
   get style() { return this.project.style; },
   samples: {}, // id -> {name, dataURL, buffer}
   sel: { track: null, pattern: 0, role: null },
-  mode: 'pattern',
+  mode: 'pattern',      // 'pattern' | 'song' | 'adaptive'
+  intensity: 1,         // adaptive preview: 0 = base layer only … 1 = all layers
   loopSong: true,
   metro: false,
   recording: false,
@@ -216,6 +252,10 @@ const App = {
     p.scores.forEach((s) => {
       s.key = s.key ?? p.style.key; s.scale = s.scale || p.style.scale; s.swing = s.swing ?? 0;
       s.arrangement = s.arrangement || [];
+      s.layers = s.layers && s.layers.length ? s.layers : [{ id: 'base', name: 'Base' }];
+      s.adaptive = Object.assign({ quant: 'bar' }, s.adaptive || {});
+      s.patterns.forEach((p) => { p.kind = p.kind || 'loop'; if (p.entrySting === undefined) p.entrySting = null; });
+      s.tracks.forEach((t) => { if (!s.layers.some((l) => l.id === t.layer)) t.layer = s.layers[0].id; });
       s.tracks.forEach((t) => { if (t.sound && t.sound.synth) t.sound.synth = Object.assign({}, SYNTH_PRESETS[t.sound.preset] || SYNTH_PRESETS.piano, t.sound.synth); });
       ensureAll(s);
     });

@@ -40,7 +40,7 @@ function makeIR(ctx, seconds) {
 
 /* ---------- Graph ---------- */
 function buildGraph(ctx, song, opts = {}) {
-  const g = { ctx, tracks: {}, noise: makeNoise(ctx), only: opts.only || null, openHats: {} };
+  const g = { ctx, tracks: {}, noise: makeNoise(ctx), only: opts.only || null, openHats: {}, realtime: !!opts.realtime };
   const mk = (type, props = {}) => {
     const n = type === 'gain' ? ctx.createGain() : ctx.createBiquadFilter();
     if (type !== 'gain') n.type = type;
@@ -134,12 +134,22 @@ function trackAudible(song, t, only) {
   return !anySolo || t.solo;
 }
 
+/* Track fader × (in the live adaptive preview) its intensity layer's level. */
+function trackGain(g, song, t) {
+  if (!trackAudible(song, t, g.only)) return 0;
+  const layer = g.realtime && App.mode === 'adaptive' ? layerGainAt(song, t, App.intensity) : 1;
+  return t.vol * layer;
+}
+/* Fade every track to its current layer level — slower than a fader move, like a game crossfade. */
+function applyLayerFades(g, song) {
+  song.tracks.forEach((t) => { const n = g.tracks[t.id]; if (n) n.gain.gain.setTargetAtTime(trackGain(g, song, t), g.ctx.currentTime, 0.35); });
+}
 function applyTrack(g, t, song, instant) {
   const n = g.tracks[t.id];
   if (!n) return;
   n.drive.curve = t.drive > 0.001 ? driveCurve(t.drive) : null;
   setParam(g, n.tone.frequency, t.tone, instant);
-  setParam(g, n.gain.gain, trackAudible(song, t, g.only) ? t.vol : 0, instant);
+  setParam(g, n.gain.gain, trackGain(g, song, t), instant);
   setParam(g, n.pan.pan, t.pan, instant);
   setParam(g, n.rev.gain, t.rev, instant);
   setParam(g, n.dly.gain, t.dly, instant);
@@ -431,6 +441,7 @@ const Engine = {
   track(t) { if (this.g) applyTrack(this.g, t, App.song); },
   tracksAll() { if (this.g) App.song.tracks.forEach((t) => applyTrack(this.g, t, App.song)); },
   master() { if (this.g) applyMaster(this.g, App.song); },
+  layers() { if (this.g) applyLayerFades(this.g, App.song); },
   rebuild() {
     if (!this.g) return;
     Object.keys(this.g.tracks).forEach((id) => removeTrackNodes(this.g, id));
@@ -461,8 +472,59 @@ const Seq = {
     }
     return { block: 0, pat: b[0], local: 0 };
   },
-  start(fromStep = 0) {
+  /* ---- Adaptive mode: the game sits in a looping segment and asks to change segments.
+     The change lands on the next beat / bar / segment end (score.adaptive.quant), optionally
+     through a one-shot sting. This mirrors what the Unity player will do. ---- */
+  adapt: null, // { cur, local, after, next: {target, sting} | null }
+  loops() { return App.song.patterns.map((p, i) => (p.kind === 'sting' ? -1 : i)).filter((i) => i >= 0); },
+  stingIndex(id) { const i = App.song.patterns.findIndex((p) => p.id === id && p.kind === 'sting'); return i < 0 ? null : i; },
+  /* Ask for a segment (or a sting, which then returns to the current segment). */
+  request(i, asSting = false) {
+    if (App.mode !== 'adaptive') UI.setMode('adaptive', false);
+    if (!this.playing) {
+      if (asSting) return;
+      this.start(0, i);
+      return;
+    }
+    const A = this.adapt;
+    if (asSting) A.next = { target: A.after ?? A.cur, sting: i };
+    else if (i === A.cur && !A.after) A.next = null;
+    else A.next = { target: i, sting: null };
+  },
+  atBoundary(local) {
+    const q = App.song.adaptive.quant;
+    return q === 'beat' ? local % 4 === 0 : q === 'bar' ? local % 16 === 0 : local === 0;
+  },
+  /* Advance the adaptive state by one step; returns the pattern + step to schedule. */
+  adaptiveStep() {
+    const A = this.adapt, pats = App.song.patterns;
+    if (!pats[A.cur]) A.cur = this.loops()[0] ?? 0;
+    if (A.local >= pats[A.cur].bars * 16) {
+      A.local = 0;
+      if (A.after !== null) {                       // a sting finished
+        A.cur = A.next && A.next.sting === null ? A.next.target : A.after;
+        if (A.next && A.next.sting === null) A.next = null;
+        A.after = null;
+      }
+    }
+    if (A.next && A.after === null && this.atBoundary(A.local)) {
+      const target = A.next.target;
+      const sting = A.next.sting ?? this.stingIndex(pats[target] && pats[target].entrySting);
+      if (sting !== null && pats[sting]) { A.cur = sting; A.after = target; }
+      else A.cur = target;
+      A.local = 0;
+      A.next = null;
+    }
+    return { pat: A.cur, local: A.local++ };
+  },
+  start(fromStep = 0, segment) {
     const ctx = Engine.ensure();
+    if (App.mode === 'adaptive') {
+      const loops = this.loops();
+      const first = segment ?? (loops.includes(App.sel.pattern) ? App.sel.pattern : loops[0] ?? App.sel.pattern);
+      this.adapt = { cur: first, local: 0, after: null, next: null };
+      Engine.layers();
+    }
     this.stepPos = fromStep;
     this.nextTime = ctx.currentTime + 0.06;
     this.playing = true;
@@ -476,6 +538,7 @@ const Seq = {
     clearInterval(this.timer);
     this.playing = false;
     this.queue = [];
+    this.adapt = null;
     Live.finishRecording();
     UI.onTransport();
   },
@@ -483,6 +546,14 @@ const Seq = {
     const ctx = Engine.ctx, song = App.song;
     const stepDur = 60 / song.bpm / 4;
     while (this.nextTime < ctx.currentTime + 0.12) {
+      if (App.mode === 'adaptive' && this.adapt) {
+        const { pat: pi, local } = this.adaptiveStep();
+        scheduleStep(Engine.g, song, song.patterns[pi], local, this.nextTime, stepDur);
+        if (App.metro && local % 4 === 0) metronomeClick(ctx, this.nextTime, local % 16 === 0);
+        this.queue.push({ time: this.nextTime, step: local, pat: pi, local, block: -1, dur: stepDur });
+        this.nextTime += stepDur;
+        continue;
+      }
       const total = this.totalSteps();
       if (this.stepPos >= total) {
         if (App.mode === 'song' && !App.loopSong) {

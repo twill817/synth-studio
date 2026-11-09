@@ -17,6 +17,7 @@
     <div class="seg" id="modeSeg">
       <button data-mode="pattern" class="on" title="Loop the selected pattern">Pattern</button>
       <button data-mode="song" title="Play the arrangement">Song</button>
+      <button data-mode="adaptive" title="Play like the game: loop a segment, switch segments, change intensity (Adaptive tab)">Adaptive</button>
     </div>
     <button id="btnLoop" class="tbtn small on" title="Loop the song in Song mode">⟲</button>
     <div class="pos" id="posDisplay">1.1.1</div>
@@ -71,6 +72,7 @@
       <button data-view="beat" class="on">Beat</button>
       <button data-view="roll">Piano Roll</button>
       <button data-view="arrange">Arrange</button>
+      <button data-view="adaptive">Adaptive</button>
       <button data-view="mixer">Mixer &amp; FX</button>
       <button data-view="style">Game Style</button>
     </nav>
@@ -134,6 +136,10 @@
       <div id="arrPalette" class="arr-palette"></div>
       <h4 class="subhead">Song <span id="arrLen" class="muted"></span></h4>
       <div id="arrStrip" class="arr-strip"></div>
+    </div>
+
+    <div class="view" id="view-adaptive">
+      <div id="adaptivePanel" class="adaptive-panel"></div>
     </div>
 
     <div class="view" id="view-mixer">

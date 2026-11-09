@@ -111,6 +111,8 @@ const UI = {
     this.initArrange();
     this.initMixer();
     this.initStyle();
+    this.initAdaptive();
+    $('#btnLoop').hidden = App.mode !== 'song';
     this.initInst();
     this.initKeyboard();
     this.initExport();
@@ -132,6 +134,7 @@ const UI = {
     this.renderScores();
     this.renderAddTrack();
     this.renderStyle();
+    this.renderAdaptive();
     this.renderTracks();
     this.renderPatterns();
     this.renderBeat();
@@ -175,12 +178,15 @@ const UI = {
       } catch (err) { toast('Could not open file: ' + err.message, 5000); }
     };
   },
-  setMode(m) {
+  setMode(m, restart = true) {
     const wasPlaying = Seq.playing;
     if (wasPlaying) Seq.stop();
     App.mode = m;
     $$('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
-    if (wasPlaying) Seq.start();
+    $('#btnLoop').hidden = m !== 'song'; // looping the song only means something in Song mode
+    Engine.layers();                     // layer fades apply only in Adaptive mode
+    this.renderAdaptive();
+    if (wasPlaying && restart) Seq.start();
   },
   toggleRec() {
     App.recording = !App.recording;
@@ -347,14 +353,14 @@ const UI = {
       : $(`.arr-block[data-k="${k}"] small`);
     inlineRename(el, p.name, (v) => {
       if (v) { App.pushUndo(); p.name = v; App.changed(); }
-      this.renderPatterns(); this.renderArrange();
+      this.renderPatterns(); this.renderArrange(); this.renderAdaptive();
     });
   },
   renameTrack(id) {
     const t = App.track(id);
     inlineRename($(`.track-item[data-id="${id}"] .name`), t.name, (v) => {
       if (v) { App.pushUndo(); t.name = v; App.changed(); }
-      this.renderTracks(); this.renderMixer(); this.renderRollBar(); this.renderInst(); this.renderKeyboard();
+      this.renderTracks(); this.renderMixer(); this.renderRollBar(); this.renderInst(); this.renderKeyboard(); this.renderAdaptive();
       $$('#beatTrack option').forEach((o) => { if (o.value === id) o.textContent = t.name; });
     });
   },
@@ -380,7 +386,7 @@ const UI = {
   selectPattern(i) {
     App.sel.pattern = i;
     Roll.sel.clear();
-    this.renderPatterns(); this.renderBeat(); this.renderRollBar(); this.renderArrange(); Roll.draw();
+    this.renderPatterns(); this.renderBeat(); this.renderRollBar(); this.renderArrange(); this.renderAdaptive(); Roll.draw();
   },
   /* ---------- scores (one per level / cue) ---------- */
   initScores() {
@@ -467,7 +473,7 @@ const UI = {
     $('#patternList').innerHTML = App.song.patterns.map((p, i) => `
       <div class="pattern-item ${i === App.sel.pattern ? 'sel' : ''}" data-i="${i}" title="Double-click name to rename">
         <span class="letter" style="border-left:3px solid ${patColor(i)}">${patLetter(i)}</span>
-        <span class="name">${esc(p.name)}</span><button class="edit" data-act="rename" title="Rename pattern">✎</button><span class="bars">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
+        <span class="name">${esc(p.name)}</span>${p.kind === 'sting' ? '<span class="sting-tag" title="Sting — plays once, for transitions">⚡</span>' : ''}<button class="edit" data-act="rename" title="Rename pattern">✎</button><span class="bars">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
         ${App.song.patterns.length > 1 ? '<button class="x" data-act="del" title="Delete pattern">✕</button>' : ''}
       </div>`).join('');
     $$('.barsSel').forEach((s) => (s.value = App.pattern().bars));
@@ -500,7 +506,7 @@ const UI = {
       App.pushUndo();
       App.pattern().bars = +e.target.value;
       ensurePattern(App.pattern());
-      this.renderPatterns(); this.renderBeat(); this.renderArrange(); Roll.draw(); App.changed();
+      this.renderPatterns(); this.renderBeat(); this.renderArrange(); this.renderAdaptive(); Roll.draw(); App.changed();
     }));
 
     const grid = $('#beatGrid');
@@ -843,6 +849,137 @@ const UI = {
       </div>`;
   },
 
+  /* ---------- Adaptive tab: segments, stings, layers, live preview ---------- */
+  initAdaptive() {
+    const ap = $('#adaptivePanel');
+    ap.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      const s = App.song;
+      if (b.dataset.seg !== undefined) return Seq.request(+b.dataset.seg);
+      if (b.dataset.sting !== undefined) return Seq.request(+b.dataset.sting, true);
+      const act = b.dataset.act;
+      if (act === 'addLayer') {
+        App.pushUndo();
+        s.layers.push({ id: uid(), name: 'Layer ' + (s.layers.length + 1) });
+        this.renderAdaptive(); Engine.layers(); App.changed();
+      } else if (act === 'delLayer') {
+        const L = s.layers.find((l) => l.id === b.dataset.id);
+        App.pushUndo();
+        s.layers = s.layers.filter((l) => l !== L);
+        s.tracks.forEach((t) => { if (t.layer === L.id) t.layer = s.layers[0].id; });
+        this.renderAdaptive(); Engine.layers(); App.changed();
+        undoToast(`Removed layer “${L.name}” — its tracks moved to ${s.layers[0].name}`);
+      } else if (act === 'renameLayer') {
+        const L = s.layers.find((l) => l.id === b.dataset.id);
+        inlineRename($(`.layer-row[data-id="${L.id}"] .name`), L.name, (v) => {
+          if (v) { App.pushUndo(); L.name = v; App.changed(); }
+          this.renderAdaptive();
+        });
+      }
+    });
+    ap.addEventListener('pointerdown', (e) => { if (e.target.matches('select[data-kind], select[data-entry], select[data-tlayer], select[data-adp]')) App.pushUndo(); });
+    ap.addEventListener('change', (e) => {
+      const el = e.target, s = App.song;
+      if (el.dataset.kind !== undefined) {
+        const p = s.patterns[+el.dataset.kind];
+        p.kind = el.value;
+        if (p.kind === 'sting') p.entrySting = null;
+        else s.patterns.forEach((q) => { if (q.entrySting === p.id) q.entrySting = null; });
+        this.renderPatterns();
+      } else if (el.dataset.entry !== undefined) s.patterns[+el.dataset.entry].entrySting = el.value || null;
+      else if (el.dataset.tlayer !== undefined) { App.track(el.dataset.tlayer).layer = el.value; Engine.layers(); }
+      else if (el.dataset.adp === 'quant') s.adaptive.quant = el.value;
+      else return;
+      App.changed();
+      this.renderAdaptive();
+    });
+    ap.addEventListener('input', (e) => {
+      if (e.target.id !== 'intensity') return;
+      App.intensity = +e.target.value;
+      Engine.layers();
+      this.showLayerLevels();
+    });
+  },
+  showLayerLevels() {
+    const s = App.song;
+    $$('.lvl-meter').forEach((el) => {
+      const i = +el.dataset.i;
+      const g = i === 0 ? 1 : clamp(App.intensity * (s.layers.length - 1) - (i - 1), 0, 1);
+      el.style.setProperty('--lvl', g);
+      el.title = `${s.layers[i].name}: ${Math.round(g * 100)}%`;
+    });
+    const v = $('#intensityVal');
+    if (v) v.textContent = Math.round(App.intensity * 100) + '%';
+  },
+  renderAdaptive() {
+    const ap = $('#adaptivePanel');
+    if (!ap) return;
+    const s = App.song;
+    const loops = s.patterns.map((p, i) => ({ p, i })).filter((x) => x.p.kind !== 'sting');
+    const stings = s.patterns.map((p, i) => ({ p, i })).filter((x) => x.p.kind === 'sting');
+    const quantName = { beat: 'next beat', bar: 'next bar', end: 'end of the segment' }[s.adaptive.quant];
+    const layerOpts = (cur) => s.layers.map((l) => `<option value="${l.id}" ${l.id === cur ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
+    ap.innerHTML = `
+      <section class="adp-sec">
+        <h4 class="subhead">Preview — play it the way the game will</h4>
+        <p class="muted">Pick a segment to start. While it plays, pick another: the change lands on the ${quantName}${stings.length ? ', through its entry sting if it has one' : ''}. Raise intensity to fade in the upper layers.</p>
+        <div class="seg-buttons">${loops.length ? loops.map(({ p, i }) => `<button class="seg-btn" data-seg="${i}" style="--c:${patColor(i)}">${esc(p.name)}<small>${p.bars} bar${p.bars > 1 ? 's' : ''}${p.entrySting && Seq.stingIndex(p.entrySting) !== null ? ' · ⚡' : ''}</small></button>`).join('')
+          : '<span class="muted">No segments yet — set a pattern’s type to Segment below.</span>'}</div>
+        ${stings.length ? `<div class="sting-buttons"><span class="muted">Play a sting:</span>${stings.map(({ p, i }) => `<button class="seg-btn sting" data-sting="${i}">⚡ ${esc(p.name)}</button>`).join('')}</div>` : ''}
+        ${s.layers.length > 1 ? `
+          <div class="intensity">
+            <label>Intensity <input id="intensity" type="range" min="0" max="1" step="0.01" value="${App.intensity}"><b id="intensityVal"></b></label>
+            <div class="lvls">${s.layers.map((l, i) => `<div class="lvl"><span class="lvl-meter" data-i="${i}"></span><span>${esc(l.name)}</span></div>`).join('')}</div>
+          </div>` : '<p class="muted">Add a second layer below to preview intensity.</p>'}
+        <label>Change segment on <select data-adp="quant">
+          <option value="beat" ${s.adaptive.quant === 'beat' ? 'selected' : ''}>Next beat</option>
+          <option value="bar" ${s.adaptive.quant === 'bar' ? 'selected' : ''}>Next bar</option>
+          <option value="end" ${s.adaptive.quant === 'end' ? 'selected' : ''}>End of segment</option></select></label>
+      </section>
+
+      <section class="adp-sec">
+        <h4 class="subhead">Segments &amp; stings</h4>
+        <p class="muted">A <b>segment</b> loops while the game stays in that state (explore, combat, boss…). A <b>sting</b> plays once — use it as the way into a segment.</p>
+        <div class="adp-table">${s.patterns.map((p, i) => `
+          <div class="adp-row">
+            <span class="letter" style="border-left:3px solid ${patColor(i)}">${patLetter(i)}</span>
+            <span class="name">${esc(p.name)}</span><span class="muted">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
+            <select data-kind="${i}" aria-label="Type"><option value="loop" ${p.kind !== 'sting' ? 'selected' : ''}>Segment (loops)</option><option value="sting" ${p.kind === 'sting' ? 'selected' : ''}>Sting (once)</option></select>
+            ${p.kind !== 'sting' && stings.length ? `<label>Enter through <select data-entry="${i}"><option value="">no sting</option>${stings.map((x) => `<option value="${x.p.id}" ${p.entrySting === x.p.id ? 'selected' : ''}>⚡ ${esc(x.p.name)}</option>`).join('')}</select></label>` : '<span></span>'}
+          </div>`).join('')}</div>
+      </section>
+
+      <section class="adp-sec">
+        <h4 class="subhead">Intensity layers</h4>
+        <p class="muted">Layers stack from the bottom: the first is always playing, each one above fades in as intensity rises. Each layer becomes its own stem for Unity.</p>
+        <div class="layer-list">${s.layers.map((l, i) => {
+          const ts = s.tracks.filter((t) => t.layer === l.id);
+          return `<div class="layer-row" data-id="${l.id}">
+            <span class="lvl-idx">${i === 0 ? 'always on' : 'level ' + i}</span>
+            <span class="name">${esc(l.name)}</span><button class="edit" data-act="renameLayer" data-id="${l.id}" title="Rename layer">✎</button>
+            <span class="chips">${ts.map((t) => `<span class="chip" style="--c:${t.color}">${esc(t.name)}</span>`).join('') || '<span class="muted">no tracks</span>'}</span>
+            ${i > 0 ? `<button class="x" data-act="delLayer" data-id="${l.id}" title="Remove layer">✕</button>` : '<span></span>'}
+          </div>`;
+        }).join('')}</div>
+        <button data-act="addLayer">+ Layer</button>
+        <div class="track-layers">${s.tracks.map((t) => `
+          <label><span class="dot" style="background:${t.color}"></span>${esc(t.name)} <select data-tlayer="${t.id}">${layerOpts(t.layer)}</select></label>`).join('')}</div>
+      </section>`;
+    this.showLayerLevels();
+  },
+  /* Called every frame while playing in Adaptive mode: light up the playing / queued segment. */
+  markAdaptive() {
+    const A = Seq.adapt;
+    $$('#adaptivePanel .seg-btn').forEach((b) => {
+      const i = +(b.dataset.seg ?? b.dataset.sting);
+      const playing = A && A.cur === i;
+      const queued = A && ((A.next && (A.next.target === i && b.dataset.seg !== undefined || A.next.sting === i)) || (A.after === i && b.dataset.seg !== undefined));
+      b.classList.toggle('playing', !!playing);
+      b.classList.toggle('queued', !!queued && !playing);
+    });
+  },
+
   /* ---------- Game Style tab ---------- */
   initStyle() {
     const sp = $('#stylePanel');
@@ -1103,6 +1240,7 @@ const UI = {
       }
       if (this.view === 'roll') Roll.draw(pos);
     } else this._playPat = this._playBlock = null;
+    if (this.view === 'adaptive') this.markAdaptive();
     this.drawScope();
   },
   drawScope() {
