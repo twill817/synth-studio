@@ -200,6 +200,9 @@ const UI = {
   onTransport() {
     $('#btnPlay').classList.toggle('on', Seq.playing);
     $('#btnPlay').textContent = Seq.playing ? '❚❚' : '▶';
+    const fade = $('#adpFade');
+    if (fade) fade.hidden = !Seq.playing;          // fading only means something while playing
+    if (!Seq.playing) this.markAdaptive();
     if (!Seq.playing) {
       $('#posDisplay').textContent = '1.1.1';
       this.markBeatStep(-1);
@@ -893,6 +896,8 @@ const UI = {
       const s = App.song;
       if (b.dataset.seg !== undefined) return Seq.request(+b.dataset.seg);
       if (b.dataset.sting !== undefined) return Seq.request(+b.dataset.sting, true);
+      if (b.dataset.end !== undefined) return Seq.end(+b.dataset.end);
+      if (b.dataset.act === 'fadeOut') return Seq.fadeOut(2);
       const act = b.dataset.act;
       if (act === 'addLayer') {
         App.pushUndo();
@@ -958,10 +963,11 @@ const UI = {
     ap.innerHTML = `
       <section class="adp-sec">
         <h4 class="subhead">Preview — play it the way the game will</h4>
-        <p class="muted">Pick a segment to start. While it plays, pick another: the change lands on the ${quantName}${stings.length ? ', through its entry sting if it has one' : ''}. Raise intensity to fade in the upper layers.</p>
+        <p class="muted">Pick a segment to start. While it plays, pick another: the change lands on the ${quantName}${stings.length ? ', through its entry sting if it has one' : ''}. Raise intensity to fade in the upper layers. To finish, end on a sting or fade out, as the game does when a run or level ends.</p>
         <div class="seg-buttons">${loops.length ? loops.map(({ p, i }) => `<button class="seg-btn" data-seg="${i}" style="--c:${patColor(i)}">${esc(p.name)}<small>${p.bars} bar${p.bars > 1 ? 's' : ''}${p.entrySting && Seq.stingIndex(p.entrySting) !== null ? ' · ⚡' : ''}</small></button>`).join('')
           : '<span class="muted">No segments yet — set a pattern’s type to Segment below.</span>'}</div>
         ${stings.length ? `<div class="sting-buttons"><span class="muted">Play a sting:</span>${stings.map(({ p, i }) => `<button class="seg-btn sting" data-sting="${i}">⚡ ${esc(p.name)}</button>`).join('')}</div>` : ''}
+        ${stings.length ? `<div class="sting-buttons end-buttons"><span class="muted">End the music:</span>${stings.map(({ p, i }) => `<button class="seg-btn sting" data-end="${i}" title="At the next change point the loop stops and ${esc(p.name)} plays once — like End With Sting in Unity (a level's finish, game over)">End on ⚡ ${esc(p.name)}</button>`).join('')}<button id="adpFade" class="seg-btn" data-act="fadeOut" title="Fade everything out over 2 seconds, like Stop in Unity" ${Seq.playing ? '' : 'hidden'}>Fade out</button></div>` : ''}
         ${s.layers.length > 1 ? `
           <div class="intensity">
             <label>Intensity <input id="intensity" type="range" min="0" max="1" step="0.01" value="${App.intensity}"><b id="intensityVal"></b></label>
@@ -1007,8 +1013,15 @@ const UI = {
   markAdaptive() {
     const A = Seq.adapt;
     $$('#adaptivePanel .seg-btn').forEach((b) => {
+      if (b.dataset.end !== undefined) {           // "End on ⚡ X": lit while that ending is queued or playing
+        const i = +b.dataset.end;
+        b.classList.toggle('playing', !!(A && A.ending && A.cur === i));
+        b.classList.toggle('queued', !!(A && A.next && A.next.end && A.next.sting === i));
+        return;
+      }
+      if (b.dataset.act) return;
       const i = +(b.dataset.seg ?? b.dataset.sting);
-      const playing = A && A.cur === i;
+      const playing = A && A.cur === i && !A.ending;
       const queued = A && ((A.next && (A.next.target === i && b.dataset.seg !== undefined || A.next.sting === i)) || (A.after === i && b.dataset.seg !== undefined));
       b.classList.toggle('playing', !!playing);
       b.classList.toggle('queued', !!queued && !playing);

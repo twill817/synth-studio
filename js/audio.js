@@ -494,8 +494,34 @@ const Seq = {
     }
     const A = this.adapt;
     if (asSting) A.next = { target: A.after ?? A.cur, sting: i };
+    else if (A.ending) A.next = { target: i, sting: null };   // changed their mind: carry on after the sting
     else if (i === A.cur && !A.after) A.next = null;
     else A.next = { target: i, sting: null };
+  },
+  /* End the music on a sting, like the Unity player's EndWithSting: at the next change point the
+     loop stops and the sting plays once; then playback stops. Not playing: just play the sting. */
+  end(i) {
+    if (App.mode !== 'adaptive') UI.setMode('adaptive', false);
+    if (!this.playing) { this.start(0, i); this.adapt.ending = true; return; }
+    this.adapt.next = { target: null, sting: i, end: true };
+  },
+  /* Fade everything out over `seconds`, then stop (the Unity player's Stop(seconds)). */
+  fadeOut(seconds = 2) {
+    if (!this.playing || !Engine.g) return;
+    const p = Engine.g.out.gain, now = Engine.ctx.currentTime;
+    p.cancelScheduledValues(now); p.setValueAtTime(p.value, now); p.linearRampToValueAtTime(0, now + seconds);
+    clearTimeout(this.fadeTimer);
+    this.fadeTimer = setTimeout(() => {
+      this.stop();
+      // Bring the volume back once the last scheduled notes have died away (silently).
+      this.fadeTimer = setTimeout(() => this.restoreVolume(), 1000);
+    }, seconds * 1000);
+  },
+  restoreVolume() {
+    clearTimeout(this.fadeTimer); this.fadeTimer = null;
+    if (!Engine.g) return;
+    Engine.g.out.gain.cancelScheduledValues(Engine.ctx.currentTime);
+    Engine.master();
   },
   atBoundary(local) {
     const q = App.song.adaptive.quant;
@@ -507,13 +533,18 @@ const Seq = {
     if (!pats[A.cur]) A.cur = this.loops()[0] ?? 0;
     if (A.local >= pats[A.cur].bars * 16) {
       A.local = 0;
-      if (A.after !== null) {                       // a sting finished
+      if (A.ending) {                               // the ending sting finished
+        if (!A.next || A.next.end) return null;     // done: stop
+        A.ending = false; A.cur = A.next.target; A.next = null;   // a segment was picked meanwhile
+      } else if (A.after !== null) {                // a sting finished
         A.cur = A.next && A.next.sting === null ? A.next.target : A.after;
         if (A.next && A.next.sting === null) A.next = null;
         A.after = null;
       }
     }
-    if (A.next && A.after === null && this.atBoundary(A.local)) {
+    if (A.next && A.next.end && A.after === null && !A.ending && this.atBoundary(A.local)) {
+      A.cur = A.next.sting; A.ending = true; A.local = 0; A.next = null;
+    } else if (A.next && !A.next.end && A.after === null && !A.ending && this.atBoundary(A.local)) {
       const target = A.next.target;
       const sting = A.next.sting ?? this.stingIndex(pats[target] && pats[target].entrySting);
       if (sting !== null && pats[sting]) { A.cur = sting; A.after = target; }
@@ -528,9 +559,11 @@ const Seq = {
     if (App.mode === 'adaptive') {
       const loops = this.loops();
       const first = segment ?? (loops.includes(App.sel.pattern) ? App.sel.pattern : loops[0] ?? App.sel.pattern);
-      this.adapt = { cur: first, local: 0, after: null, next: null };
+      this.adapt = { cur: first, local: 0, after: null, next: null, ending: false };
       Engine.layers();
     }
+    clearTimeout(this.endTimer);
+    if (this.fadeTimer) this.restoreVolume();
     this.stepPos = fromStep;
     this.nextTime = ctx.currentTime + 0.06;
     this.playing = true;
@@ -553,7 +586,14 @@ const Seq = {
     const stepDur = 60 / song.bpm / 4;
     while (this.nextTime < ctx.currentTime + 0.12) {
       if (App.mode === 'adaptive' && this.adapt) {
-        const { pat: pi, local } = this.adaptiveStep();
+        const st = this.adaptiveStep();
+        if (!st) {                                  // ended on a sting: stop once it has played
+          const endAt = this.nextTime;
+          clearInterval(this.timer);
+          this.endTimer = setTimeout(() => this.stop(), Math.max(0, (endAt - ctx.currentTime) * 1000));
+          return;
+        }
+        const { pat: pi, local } = st;
         scheduleStep(Engine.g, song, song.patterns[pi], local, this.nextTime, stepDur);
         if (App.metro && local % 4 === 0) metronomeClick(ctx, this.nextTime, local % 16 === 0);
         this.queue.push({ time: this.nextTime, step: local, pat: pi, local, block: -1, dur: stepDur });
