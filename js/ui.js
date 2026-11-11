@@ -1226,9 +1226,10 @@ const UI = {
     const b = $('#btnClaude');
     b.hidden = state === 'unavailable'; // opened as a file: browsers block the link
     b.className = 'claude-btn ' + state;
-    b.textContent = { off: 'Connect Claude', waiting: 'Claude: waiting…', connected: '● Claude connected' }[state] || '';
+    b.textContent = { off: 'Connect Claude', waiting: 'Claude: waiting…', connected: '● Claude connected', displaced: 'Claude: other tab · Use this tab' }[state] || '';
     b.title = {
       off: 'Let Claude (Claude Code or Claude Desktop with the Synth Studio MCP server) read and edit this project. Every change appears here and can be undone.',
+      displaced: 'Another Synth Studio tab or window has the Claude link, so Claude reads and edits the project there, not here. Click to move the link to this tab.',
       waiting: `${note ? note + '. ' : ''}Looking for the Synth Studio MCP server on this computer — it runs while Claude Code or Claude Desktop is open with it set up. Click to stop.`,
       connected: 'Claude can read and edit this project; every change appears here and can be undone. Click to disconnect.',
     }[state] || '';

@@ -19,7 +19,8 @@ const Bridge = {
     if (servedByClaude) this.port = +location.port;
     if (on || servedByClaude) this.enable(); else UI.setBridge('off');
   },
-  toggle() { this.state === 'off' ? this.enable() : this.disable(); },
+  // Off or displaced (another tab has the link): connect, taking the link over. Otherwise: disconnect.
+  toggle() { this.state === 'off' || this.state === 'displaced' ? this.enable() : this.disable(); },
   enable() {
     try { localStorage.setItem('synthstudio.claudeLink', 'on'); } catch (e) {}
     this.state = 'waiting'; this.retryMs = 2000;
@@ -59,8 +60,17 @@ const Bridge = {
       const was = this.ws === ws;
       if (was) this.ws = null;
       if (this.state === 'off') return;
+      // Another tab took the link (the server closes the older page with 4000). Don't reconnect on our
+      // own: the two tabs would keep taking it from each other, and Claude's edits would land in
+      // whichever copy held it at the time. The user can take it back with the button.
+      if (e.code === 4000) {
+        this.state = 'displaced';
+        clearTimeout(this.timer);
+        UI.setBridge('displaced');
+        return;
+      }
       this.state = 'waiting';
-      UI.setBridge('waiting', e.code === 4000 ? 'Another tab took over the Claude link' : '');
+      UI.setBridge('waiting');
       this.retry();
     };
     ws.onerror = () => {}; // onclose follows; the browser logs the failed attempt itself

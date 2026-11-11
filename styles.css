@@ -289,4 +289,5 @@ fieldset label { color: var(--text); }
 
 /* Claude link button */
 .claude-btn.waiting { color: #ffc46b; border-color: #6b5520; }
+.claude-btn.displaced { color: #ffc46b; border-color: #6b5520; border-style: dashed; }
 .claude-btn.connected { color: #0d2312; background: var(--accent2); border-color: var(--accent2); font-weight: 600; }
