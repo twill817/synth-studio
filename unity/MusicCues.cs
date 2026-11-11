@@ -71,11 +71,22 @@ namespace SynthStudio
 
 #if UNITY_EDITOR
         // Flag cues whose segment/sting names aren't in the player's manifest (typos, renamed segments).
+        // Unity also calls OnValidate while it loads a scene (opening the editor, leaving Play mode),
+        // before the manifest can be read; checking then sees no segments and flags every cue. So the
+        // check waits until loading is over and skips Play-mode changes.
         void OnValidate()
         {
             if (player == null) player = GetComponent<AdaptiveMusicPlayer>();
+            if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode) return;
+            UnityEditor.EditorApplication.delayCall += () => { if (this != null) CheckCueNames(); };
+        }
+
+        void CheckCueNames()
+        {
+            if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode) return;
             if (player == null || player.manifest == null) return;
             var segments = new HashSet<string>(player.SegmentNames());
+            if (segments.Count == 0) return; // manifest not readable yet; nothing to check against
             var stings = new HashSet<string>(player.StingNames());
             foreach (var cue in cues)
             {
