@@ -6,7 +6,7 @@
 //   ClockLow     → Set Intensity   1
 //   Paused       → Duck            0.3
 //   Resumed      → Unduck
-//   RunOver      → Play Sting      "Finish"
+//   RunOver      → End With Sting  "Finish"   (the loop stops at the next bar; the sting rings out)
 // then fire cues by name — from game code (`cues.Trigger("RunStarted")`), or with no code at all from
 // any UnityEvent in the Inspector (buttons, triggers, timelines): pick MusicCues → Trigger and type the name.
 // The game decides *when*; the table decides *what the music does*, so it can be tuned without code.
@@ -19,7 +19,8 @@ namespace SynthStudio
 {
     public class MusicCues : MonoBehaviour
     {
-        public enum CueAction { GoToSegment, PlaySting, SetIntensity, Play, Stop, Duck, Unduck }
+        // New actions go at the end: scenes store the number, so reordering would change existing cues.
+        public enum CueAction { GoToSegment, PlaySting, SetIntensity, Play, Stop, Duck, Unduck, EndWithSting }
 
         [Serializable]
         public class Cue
@@ -27,9 +28,9 @@ namespace SynthStudio
             [Tooltip("The name game code or a UnityEvent uses, e.g. RunStarted")]
             public string name;
             public CueAction action;
-            [Tooltip("Segment or sting name (Go To Segment, Play Sting, Play)")]
+            [Tooltip("Segment or sting name (Go To Segment, Play Sting, Play, End With Sting)")]
             public string target;
-            [Tooltip("Intensity 0–1 (Set Intensity), loudness while ducked 0–1 (Duck), or fade seconds (Stop)")]
+            [Tooltip("Intensity 0–1 (Set Intensity), loudness while ducked 0–1 (Duck), or fade seconds (Stop; End With Sting if the sting is missing)")]
             public float value = 1f;
         }
 
@@ -61,6 +62,7 @@ namespace SynthStudio
                     case CueAction.Stop: player.Stop(cue.value > 0f ? cue.value : 1f); break;
                     case CueAction.Duck: player.SetDucked(true, cue.value); break;
                     case CueAction.Unduck: player.SetDucked(false); break;
+                    case CueAction.EndWithSting: player.EndWithSting(cue.target, cue.value > 0f ? cue.value : 1f); break;
                 }
             }
             if (!found) Debug.LogWarning($"[MusicCues] No cue named \"{cueName}\".", this);
@@ -86,14 +88,15 @@ namespace SynthStudio
             if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode) return;
             if (player == null || player.manifest == null) return;
             var segments = new HashSet<string>(player.SegmentNames());
-            if (segments.Count == 0) return; // manifest not readable yet; nothing to check against
+            if (segments.Count == 0) return; // manifest unreadable (e.g. mid-import); nothing to check against
             var stings = new HashSet<string>(player.StingNames());
             foreach (var cue in cues)
             {
                 bool needsSegment = cue.action == CueAction.GoToSegment || cue.action == CueAction.Play;
                 if (needsSegment && !segments.Contains(cue.target))
                     Debug.LogWarning($"[MusicCues] Cue \"{cue.name}\": no segment \"{cue.target}\". Segments: {string.Join(", ", segments)}", this);
-                if (cue.action == CueAction.PlaySting && !stings.Contains(cue.target))
+                bool needsSting = cue.action == CueAction.PlaySting || cue.action == CueAction.EndWithSting;
+                if (needsSting && !stings.Contains(cue.target))
                     Debug.LogWarning($"[MusicCues] Cue \"{cue.name}\": no sting \"{cue.target}\". Stings: {string.Join(", ", stings)}", this);
             }
         }

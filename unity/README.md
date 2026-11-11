@@ -39,7 +39,8 @@ public class LevelMusic : MonoBehaviour
     void OnAllClear()      => music.GoToSegment("Explore");
     void OnHealthChanged(float danger) => music.SetIntensity(danger); // 0..1, layers fade in
     void OnSecretFound()   => music.PlaySting("Alert");
-    void OnLevelEnd()      => music.Stop(2f);
+    void OnLevelEnd()      => music.EndWithSting("Finish"); // loop stops on the next bar, the sting rings out
+    void OnQuit()          => music.Stop(2f);
 }
 ```
 
@@ -56,7 +57,7 @@ Add **Music Cues** next to the player and fill its table in the Inspector — ea
 | EnemySpotted | Go To Segment | Action (plays its entry sting first) |
 | ClockLow | Set Intensity | 1 |
 | Paused / Resumed | Duck 0.3 / Unduck | |
-| RunOver | Play Sting | Finish |
+| RunOver | End With Sting | Finish (the loop stops; nothing starts after) |
 
 Fire a cue from code — `cues.Trigger("RunStarted")` — or with no code from any UnityEvent (buttons, triggers, timelines): pick **MusicCues → Trigger** and type the name. The game decides *when*; the table decides *what the music does*, so it can be re-tuned without code. Typos are flagged in the Console (cue targets are checked against the manifest).
 - If a segment has an entry sting, `GoToSegment` plays it first, then the segment.

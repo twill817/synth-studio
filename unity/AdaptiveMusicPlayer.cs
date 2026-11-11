@@ -82,9 +82,14 @@ namespace SynthStudio
         /// <summary>Segment and sting names in the manifest (works in the editor before Play, too).</summary>
         public string[] SegmentNames() { var mm = ReadManifest(); return mm == null ? new string[0] : Array.ConvertAll(mm.segments, s => s.name); }
         public string[] StingNames() { var mm = ReadManifest(); return mm == null || mm.stings == null ? new string[0] : Array.ConvertAll(mm.stings, s => s.name); }
-        MusicManifest ReadManifest() => m ?? (manifest != null ? JsonUtility.FromJson<MusicManifest>(manifest.text) : null);
+        // In Play mode use the manifest read in Awake; in the editor always read the asset, so a
+        // re-export or a script reload never leaves a stale copy behind.
+        MusicManifest ReadManifest() => Application.isPlaying && m != null ? m
+            : (manifest != null ? JsonUtility.FromJson<MusicManifest>(manifest.text) : null);
 
-        MusicManifest m;
+        // [NonSerialized]: the editor keeps private fields across script reloads, which would leave
+        // these as empty objects (no segments) instead of null.
+        [NonSerialized] MusicManifest m;
         readonly Dictionary<string, AudioClip> clipByName = new Dictionary<string, AudioClip>();
         AudioSource[][] banks;          // two banks of one source per layer, swapped at each segment change
         AudioSource[] stingSources;     // two, so a sting's tail can ring under the next one
@@ -93,7 +98,7 @@ namespace SynthStudio
         float master = 1f;
         float duck = 1f, duckTarget = 1f, duckSeconds = 0.3f;
 
-        MusicSegment current;
+        [NonSerialized] MusicSegment current;
         double segmentStart;            // dspTime the current segment's loop started (may be in the future)
         string queuedSegment, queuedSting;
         bool queuedHasRequest;
@@ -175,6 +180,32 @@ namespace SynthStudio
         {
             if (fade != null) StopCoroutine(fade);
             fade = StartCoroutine(FadeOut(fadeSeconds));
+        }
+
+        /// <summary>End the music on a sting (a level's finish, game over): at the next quantize point
+        /// the loop stops and the sting plays out in full; nothing starts after it. Unknown sting: fades out.</summary>
+        public void EndWithSting(string sting, float fallbackFadeSeconds = 1f)
+        {
+            if (m == null) return;
+            var st = FindSting(sting);
+            if (st == null) { Stop(fallbackFadeSeconds); return; }
+            if (fade != null) { StopCoroutine(fade); fade = null; }
+            master = 1f;
+            queuedHasRequest = false;
+            double now = AudioSettings.dspTime + ScheduleLead;
+            double at = now;
+            if (current != null)
+            {
+                double q = QuantizeSeconds();
+                at = segmentStart > now ? segmentStart : segmentStart + Math.Ceiling((now - segmentStart) / q) * q;
+            }
+            StopAllAt(at);
+            var src = stingSources[nextSting]; nextSting = 1 - nextSting;
+            src.clip = Clip(st.file);
+            src.volume = volume * master * duck;
+            if (src.clip != null) src.PlayScheduled(at);
+            current = null;   // stopped: the next Play or GoToSegment starts fresh
+            activeBank = -1;
         }
 
         // ---------------------------------------------------------------- scheduling

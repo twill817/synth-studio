@@ -39,7 +39,7 @@ The **Adaptive** tab sets up how a score responds to gameplay and lets you hear 
 - one WAV per sting, with its natural tail
 - `manifest.json` per score (tempo, layers, segments, stings, transition rule, loudness)
 - loudness matched across scores to a LUFS target (default −16), peaks kept under −1 dBFS
-- `AdaptiveMusicPlayer.cs`, the Unity component that plays it all: `GoToSegment("Action")`, `SetIntensity(0.7f)`, `PlaySting("Alert")`, `Stop(2f)`
+- `AdaptiveMusicPlayer.cs`, the Unity component that plays it all: `GoToSegment("Action")`, `SetIntensity(0.7f)`, `PlaySting("Alert")`, `EndWithSting("Finish")`, `Stop(2f)`
 
 Setup and import settings: [unity/README.md](unity/README.md).
 
