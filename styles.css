@@ -63,6 +63,19 @@ label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted)
 #bpm { width: 60px; }
 #swing { width: 70px; }
 #scope { background: #0e1014; border-radius: 6px; }
+/* Narrow windows: the groups wrap onto more rows, and the file buttons wrap inside their own group,
+   so nothing (Export above all) is ever pushed off the right edge. */
+.filebar { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+@media (max-width: 1100px) {
+  #topbar { gap: 8px 10px; padding: 6px 10px; }
+  .brand .name { display: none; }          /* logo only */
+  .song-name { width: 120px; }
+  #scope { width: 110px; }
+}
+@media (max-width: 760px) {
+  #scope { display: none; }                /* the output meter is the first thing to go */
+  .filebar { margin-left: 0; justify-content: flex-start; }
+}
 
 /* Main */
 main { display: grid; grid-template-columns: 230px 1fr; min-height: 0; }
