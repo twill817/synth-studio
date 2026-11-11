@@ -281,6 +281,7 @@ const UI = {
       App.song.tracks.push(t); ensureAll(); App.sel.track = t.id; App.sel.role = null;
       if (t.type === 'drum') this.beatTrackId = t.id;
       Engine.sync(); this.renderAll(); App.changed();
+      this.followTrackView(t);
       if (kind === 'new') toast(`Added “${role.name}” to the game style`);
     };
     this.initScores();
@@ -308,6 +309,7 @@ const UI = {
         return;
       }
       this.selectTrack(t.id);
+      this.followTrackView(t);
     });
     tl.addEventListener('dblclick', (e) => {
       const it = e.target.closest('.track-item');
@@ -376,6 +378,12 @@ const UI = {
       this.renderTracks(); this.renderMixer(); this.renderRollBar(); this.renderInst(); this.renderKeyboard(); this.renderAdaptive();
       $$('#beatTrack option').forEach((o) => { if (o.value === id) o.textContent = t.name; });
     });
+  },
+  /* Picking a track in the sidebar while editing notes opens its editor: drums → Beat,
+     instruments → Piano Roll. Other tabs (Arrange, Adaptive, Mixer, Game Style) stay put. */
+  followTrackView(t) {
+    if (!t || (this.view !== 'beat' && this.view !== 'roll')) return;
+    this.showView(t.type === 'drum' ? 'beat' : 'roll');
   },
   selectTrack(id) {
     App.sel.track = id;
