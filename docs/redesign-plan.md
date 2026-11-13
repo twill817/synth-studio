@@ -47,7 +47,10 @@ Each step ships on its own, keeps the app working, and is checked against the mu
    - Changing a level's key now moves its linked patterns into the new key (the short way round, so D → E can move notes down rather than up).
    - Every new level starts with an empty "Main" pattern, which also becomes a library item ("Main 2", …). Fine for now; the map in step 3 may start levels empty.
    - The sidebar's Delete is now **Remove** (from this level); deleting from the game happens in the Library tab.
-3. **Level map (layout B).** Map strip replaces Arrange and Adaptive. Segments, arrows with stings/timing, anytime stings with their behaviour, play-on-map simulation.
+3. ✅ **Level map (layout B)** (done 2026-11-12, as designed below; code in `js/map.js`). The map shows only what the Unity player does today; the new sting behaviours (over the music, then go to, per-sting timing) moved to step 4. Things to know:
+   - The map folds away (▾ Map). The first time, windows shorter than 860 px start folded, because the editors' toolbars already take a lot of height; folded, Simulate's Start / Fade stay in the header.
+   - The pattern bar above the editors now holds Segment / Sting, Enter through, Duplicate and Remove, plus the library link.
+   - Layers are in Mixer & FX; a track's layer shows in its sidebar tooltip.
 4. **Game events.** Events defined in Synth, fired from the Simulate panel, exported in the manifest; Unity MusicCues reads them, with its table for overrides only.
    - Unity work: play a sting *over* the music without stopping the loop (with ducking). "Instead, then back" is PlaySting; "End the music" is EndWithSting.
 5. **Later:** several instruments shown at once; maybe weave a theme into whatever is playing instead of a separate sting.
@@ -96,6 +99,53 @@ Levels keep a full working copy of each placed pattern in today's shape. Playbac
 - New: `place_pattern` (put a library item in a level), `library_item` (rename, duplicate, delete, make own version, relink).
 - Theme tools keep their names and work on library melodies.
 - Edits to a linked pattern report which other levels changed.
+
+## Step 3 design: the level map (layout B)
+
+### What the game can do today (Unity player)
+- **Start**: plays the level's first segment (`startSegment` = first segment in the manifest).
+- **GoToSegment(X)**: at the next change point (the level's *change on*: beat, bar or segment end), through X's entry sting if it has one.
+- **PlaySting(S)**: at the next change point the loop stops, S plays once, then the current segment **restarts**.
+- **EndWithSting(S)** / **Stop(fade)**: end on a sting, or fade out.
+- **SetIntensity**: fades the upper layers in and out.
+
+The preview must never promise what the game can't do, so step 3 draws and simulates exactly these. The new sting behaviours from the mock (play *over* the music, *then go to* a segment, per-sting timing) need Unity work, so they land in step 4 together with game events — preview and game change together.
+
+### Layout
+```
+┌ top bar ───────────────────────────────────────────────────────────────┐
+│ Levels  │ MAP  ▾                     + Segment  + Sting  Place ▾  Changes land on [next bar] │ SIMULATE           │
+│ Tracks  │ [▶ Intro] → [⚡Alert› ▶ Explore] [▶ Action] … [■ End: ⚡Finish / fade]              │ ▶ Start  ■  Fade   │
+│         │ Can play anytime: [⚡Alert ▶] [⚡Finish ▶]                                           │ Intensity ━━━○━━   │
+│         ├─────────────────────────────────────────────────────────────────────────────────────┤ Base Rhythm Lead   │
+│         │ pattern bar: Action · Segment ▾ · Enter through ⚡Alert ▾ · From the library … │ Playing: Explore → │
+│         │ Beat | Piano Roll | Mixer & FX | Library | Game Style                                               │
+│         │ (editor)                                                                                             │
+```
+- **The map strip** sits above the editor tabs on every tab, and folds away (▾) to give the editor room.
+  - **Segments are nodes, left to right.** The first one is where the level starts (it becomes Unity's start segment). Drag to reorder; double-click to rename; ✕ removes from the level.
+  - **An entry sting shows on its segment** ("⚡ Alert ›"), because the game plays it whenever it goes *into* that segment, from anywhere.
+  - **End** is the last node: it lists the stings the level can end on, and Fade out.
+  - **Can play anytime** lists the level's stings; ▶ plays one the way PlaySting does (the segment restarts after it).
+  - **Header**: + Segment, + Sting, Place from library, and *Changes land on* (beat / bar / end of segment).
+- **Clicking a node edits it**: the editor below shows that pattern (Beat grid or Piano Roll, following the selected track). Selecting and playing are separate: each node has its own ▶.
+- **The pattern bar** above the editors (today's library bar) also holds the node's settings: **Segment / Sting**, and for a segment **Enter through ⚡…**. Plus the library link and *Make a version for this level*.
+- **Simulate** (right of the map): ▶ Start (from the first segment), ■ Stop, Fade out, the intensity slider with layer meters, and one line saying what's playing and what's queued. Playing / queued nodes light up on the map.
+- **Gone**: the Adaptive tab, the transport's Pattern / Adaptive switch (the transport ▶ loops the selected pattern; the map plays the game), and the sidebar's Patterns list (the map shows the same things).
+- **Intensity layers move to Mixer & FX**: the layer list (rename, + Layer, remove) at the top, and a Layer picker on each track strip. The sidebar's track rows show each track's layer.
+
+### Data
+No new data: the map is drawn from what levels already have. Node order is the order of the level's patterns (reordering updates the export playthrough so it still plays the same patterns). Entry stings, change-on timing and layers are unchanged, so the Unity export and Claude's tools keep working. `set_pattern` / `set_score` descriptions say "map" where they now affect it.
+
+### Must-keep for the Adaptive tab (moves in this step)
+| Now | Goes to |
+|---|---|
+| Segment buttons, sting buttons | ▶ on map nodes and *Can play anytime* |
+| End on ⚡ sting, Fade out | End node, Simulate |
+| Intensity slider, layer meters | Simulate |
+| Change segment on | Map header |
+| Pattern type, Enter through | Pattern bar |
+| Layers list, rename, + Layer, remove, track → layer | Mixer & FX |
 
 ## Must-keep list
 

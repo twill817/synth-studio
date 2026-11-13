@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Synth Studio</title>
 <!-- Build number: stamped by tools/pre-commit into this tag, every ?v= below, and version.txt. -->
-<meta name="build" content="20261113005611">
+<meta name="build" content="20261113010604">
 <script>
 /* Stale-page check. Browsers may keep this page cached for a few minutes after an update.
    version.txt is always fetched fresh; if it names a newer build than this page, reload once
@@ -21,20 +21,16 @@
   }).catch(function () { /* opened as a file, or offline: nothing to check */ });
 })();
 </script>
-<link rel="stylesheet" href="styles.css?v=20261113005611">
+<link rel="stylesheet" href="styles.css?v=20261113010604">
 </head>
 <body>
 <header id="topbar">
   <div class="brand" title="Synth Studio"><span class="logo">◆</span> <span class="name">Synth Studio</span></div>
   <input id="songName" class="song-name" title="Game project name" spellcheck="false" aria-label="Game project name">
   <div class="transport">
-    <button id="btnPlay" class="tbtn play" title="Play / Pause (Space)">▶</button>
+    <button id="btnPlay" class="tbtn play" title="Loop the selected pattern / pause (Space). The map's Simulate plays the level like the game.">▶</button>
     <button id="btnStop" class="tbtn" title="Stop (Enter)">■</button>
     <button id="btnRec" class="tbtn rec" title="Record from keyboard / MIDI into the playing pattern (R)">●</button>
-    <div class="seg" id="modeSeg">
-      <button data-mode="pattern" class="on" title="Loop the selected pattern">Pattern</button>
-      <button data-mode="adaptive" title="Play like the game: loop a segment, switch segments, change intensity (Adaptive tab)">Adaptive</button>
-    </div>
     <div class="pos" id="posDisplay">1.1.1</div>
   </div>
   <div class="tempo">
@@ -73,26 +69,28 @@
         <button id="btnAddTrack">+ Track</button>
       </div>
     </section>
-    <section>
-      <h3>Patterns</h3>
-      <div id="patternList"></div>
-      <div class="row gap">
-        <button id="btnAddPattern" title="New pattern in this level (it also goes into the game library)">+ New</button>
-        <button id="btnDupPattern" title="Copy this pattern as a new, separate library item">Duplicate</button>
-        <button id="btnDelPattern" class="danger" title="Remove from this level (it stays in the library)">Remove</button>
-      </div>
-      <div class="row gap" id="placeRow">
-        <select id="placeSel" title="A pattern from the game library to use in this level"></select>
-        <button id="btnPlace" title="Use this library pattern in this level, linked">Place</button>
-      </div>
-    </section>
   </aside>
 
   <section id="workspace">
+    <section id="mapArea" class="map-area" aria-label="Level map">
+      <div class="map-main">
+        <div class="map-head">
+          <button id="btnMapFold" class="map-fold" aria-expanded="true" title="Fold the map away to give the editor more room">▾ Map</button>
+          <span class="muted map-help">Click a segment to edit it · ▶ plays it like the game · drag to reorder</span>
+          <span class="map-tools">
+            <button id="btnAddSeg" title="New segment (loops while the game stays in it); it also goes into the library">+ Segment</button>
+            <button id="btnAddSting" title="New sting (plays once); it also goes into the library">+ Sting</button>
+            <span id="placeRow" class="row gap"><select id="placeSel" title="A pattern from the game library to use in this level"></select><button id="btnPlace" title="Use this library pattern in this level, linked">Place</button></span>
+            <label title="When a change the game asks for actually happens">Changes land on <select id="mapQuant"><option value="beat">next beat</option><option value="bar">next bar</option><option value="end">end of segment</option></select></label>
+          </span>
+        </div>
+        <div id="mapBody" class="map-body"></div>
+      </div>
+      <aside id="simPanel" class="sim-panel" aria-label="Simulate the game"></aside>
+    </section>
     <nav class="tabs" id="tabs">
       <button data-view="beat" class="on">Beat</button>
       <button data-view="roll">Piano Roll</button>
-      <button data-view="adaptive">Adaptive</button>
       <button data-view="mixer">Mixer &amp; FX</button>
       <button data-view="library">Library</button>
       <button data-view="style">Game Style</button>
@@ -169,11 +167,8 @@
       </div>
     </div>
 
-    <div class="view" id="view-adaptive">
-      <div id="adaptivePanel" class="adaptive-panel"></div>
-    </div>
-
     <div class="view" id="view-mixer">
+      <div id="layerPanel" class="layer-panel"></div>
       <div id="mixer" class="mixer"></div>
     </div>
 
@@ -259,18 +254,19 @@
 <input type="file" id="fileOpen" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
 <input type="file" id="fileSample" accept="audio/*" hidden>
 
-<script src="js/presets.js?v=20261113005611"></script>
-<script src="js/audio.js?v=20261113005611"></script>
-<script src="js/export.js?v=20261113005611"></script>
-<script src="js/unity.js?v=20261113005611"></script>
-<script src="js/app.js?v=20261113005611"></script>
-<script src="js/library.js?v=20261113005611"></script>
-<script src="js/themes.js?v=20261113005611"></script>
-<script src="js/ui.js?v=20261113005611"></script>
-<script src="js/roll.js?v=20261113005611"></script>
-<script src="js/bridge.js?v=20261113005611"></script>
-<script src="js/bridge-edit.js?v=20261113005611"></script>
-<script src="js/bridge-production.js?v=20261113005611"></script>
+<script src="js/presets.js?v=20261113010604"></script>
+<script src="js/audio.js?v=20261113010604"></script>
+<script src="js/export.js?v=20261113010604"></script>
+<script src="js/unity.js?v=20261113010604"></script>
+<script src="js/app.js?v=20261113010604"></script>
+<script src="js/library.js?v=20261113010604"></script>
+<script src="js/themes.js?v=20261113010604"></script>
+<script src="js/ui.js?v=20261113010604"></script>
+<script src="js/map.js?v=20261113010604"></script>
+<script src="js/roll.js?v=20261113010604"></script>
+<script src="js/bridge.js?v=20261113010604"></script>
+<script src="js/bridge-edit.js?v=20261113010604"></script>
+<script src="js/bridge-production.js?v=20261113010604"></script>
 <script>
 /* Safety net: if the app can't start (e.g. a half-updated page), say so and offer a clean reload
    instead of leaving a broken screen. */

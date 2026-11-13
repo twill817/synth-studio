@@ -336,3 +336,71 @@ fieldset label { color: var(--text); }
 .claude-btn.waiting { color: #ffc46b; border-color: #6b5520; }
 .claude-btn.displaced { color: #ffc46b; border-color: #6b5520; border-style: dashed; }
 .claude-btn.connected { color: #0d2312; background: var(--accent2); border-color: var(--accent2); font-weight: 600; }
+
+/* Level map (above the editor tabs) + Simulate */
+.map-area { display: grid; grid-template-columns: minmax(0, 1fr) 250px; border-bottom: 1px solid var(--line); background: #15171c; }
+.map-main { min-width: 0; display: flex; flex-direction: column; }
+.map-head { display: flex; align-items: center; gap: 10px; padding: 4px 10px; flex-wrap: wrap; }
+.map-fold { font-weight: 700; background: transparent; border-color: transparent; padding: 2px 6px; }
+.map-help { font-size: 11px; flex: 1; min-width: 180px; }
+.map-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.map-tools button, .map-tools select { font-size: 12px; padding: 3px 8px; }
+#placeSel { max-width: 170px; }
+.map-body { padding: 0 10px 6px; min-width: 0; }
+.map-nodes { display: flex; align-items: stretch; overflow-x: auto; padding: 14px 2px 4px; }
+.map-gap { flex: none; width: 14px; align-self: center; height: 2px; background: #3a404c; }
+.map-node { position: relative; flex: none; min-width: 130px; max-width: 200px; padding: 5px 8px; border-radius: 9px; background: #1f232b; border: 2px solid #2f3541; cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
+.map-node.seg { border-left: 5px solid var(--c, var(--accent)); }
+.map-node.sel { border-color: var(--accent); border-left-color: var(--c, var(--accent)); background: #232a36; }
+.map-node.playing { box-shadow: 0 0 0 3px rgba(81, 207, 102, .55); }
+.map-node.queued, .map-sting.queued, .end-btns button.queued { animation: pulse .5s infinite; }
+.map-node.dragover { outline: 2px dashed #fff; }
+.map-node .nm { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.map-node .letter { width: 20px; height: 20px; border-radius: 5px; background: #303644; display: grid; place-items: center; font-weight: 700; font-size: 10px; flex: none; }
+.map-node .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-node .meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.map-node .meta .start { color: var(--accent2); font-weight: 600; }
+.map-node .state { color: var(--accent2); }
+.map-node .entry { position: absolute; top: -15px; left: 4px; font-size: 10px; color: #ffc46b; white-space: nowrap; }
+.map-node .meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.node-btns { display: flex; gap: 2px; }
+.node-btns button, .map-sting button { padding: 0 6px; font-size: 11px; min-height: 0; line-height: 18px; }
+.map-node .x, .map-sting .x { opacity: 0; }
+.map-node:hover .x, .map-sting:hover .x, .map-node .x:focus-visible, .map-sting .x:focus-visible { opacity: 1; }
+.map-node.end { cursor: default; border-style: dashed; min-width: 0; max-width: none; }
+.end-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+.end-btns button { font-size: 11px; padding: 1px 7px; }
+.end-btns button.playing { background: var(--accent2); color: #0d2312; }
+.map-anytime { display: flex; flex-direction: column; justify-content: center; gap: 4px; font-size: 12px; margin-left: 18px; padding-left: 14px; border-left: 1px solid var(--line); flex: none; }
+.map-anytime .cap { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #ffc46b; margin-right: 2px; }
+.map-sting { display: inline-flex; align-items: center; gap: 6px; padding: 1px 4px 1px 9px; border-radius: 999px; background: #1f232b; border: 1px solid #6b5520; cursor: pointer; }
+.map-sting .name { font-weight: 600; }
+.map-sting.sel { border-color: #ffc46b; background: #2e2818; }
+.map-sting.playing { box-shadow: 0 0 0 3px rgba(81, 207, 102, .55); }
+.map-sting .state { color: var(--accent2); font-size: 11px; }
+.map-area.folded .map-body, .map-area.folded .map-help, .map-area.folded .map-tools, .map-area.folded .sim-panel .intensity, .map-area.folded .sim-panel .small { display: none; }
+.map-area.folded .sim-panel { padding-top: 4px; padding-bottom: 4px; }
+.map-area.folded .sim-panel .cap, .map-area.folded .sim-status { display: none; }
+.sim-panel { border-left: 1px solid var(--line); padding: 6px 10px; display: flex; flex-direction: column; gap: 5px; font-size: 12px; min-width: 0; }
+.sim-panel .cap { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; }
+.sim-panel button { font-size: 12px; padding: 3px 10px; }
+.sim-panel button.on { background: var(--accent2); border-color: var(--accent2); color: #0d2312; }
+.sim-panel .intensity { margin: 0; padding: 6px 8px; gap: 6px; }
+.sim-panel .intensity input { width: 100%; }
+.sim-panel .intensity label { display: flex; align-items: center; gap: 6px; }
+.sim-panel .lvls { gap: 8px; }
+.sim-panel .lvl-meter { width: 30px; }
+.sim-status { color: var(--accent2); font-size: 11px; line-height: 1.35; min-height: 30px; }
+.small { font-size: 11px; margin: 0; }
+/* Pattern bar (above the Beat grid and Piano Roll) */
+.lib-bar select, .lib-bar label { font-size: 12px; }
+.lib-bar .pb-name { font-size: 13px; }
+.pb-sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+/* Intensity layers in Mixer & FX */
+.layer-panel { padding: 10px 12px 4px; border-bottom: 1px solid var(--line); max-width: 900px; }
+.layer-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; font-size: 11px; }
+.layer-head .cap { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; }
+.layer-panel > button { font-size: 12px; padding: 2px 10px; margin-bottom: 6px; }
+.strip-layer select { width: 100%; font-size: 11px; }
+.layer-tag { font-size: 10px; color: var(--muted); flex: none; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) { .map-area { grid-template-columns: 1fr; } .sim-panel { border-left: 0; border-top: 1px solid var(--line); } }

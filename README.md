@@ -26,11 +26,13 @@ Synth Studio is built for making a game's soundtrack. A project is the whole gam
 
 ## Adaptive music
 
-The **Adaptive** tab sets up how a level responds to gameplay and lets you hear it the way the game will play it:
+The **map** above the editor tabs shows a level's music the way the game moves through it (fold it away with ▾ Map):
 
-- **Segments & stings** — each pattern is either a *segment* (loops while the game stays in a state: explore, combat, boss…) or a *sting* (plays once). A segment can be entered *through* a sting.
-- **Intensity layers** — tracks are grouped into stacked layers (e.g. Base → Rhythm → Intensity). The base always plays; each layer above fades in as intensity rises.
-- **Preview** — pick a segment, switch to another while it plays (the change lands on the next beat, bar, or segment end), and drag the intensity slider. The transport's **Adaptive** mode is this preview.
+- **Segments** are nodes, left to right; the first is where the level starts. A segment loops while the game stays in a state (explore, combat, boss…). Click one to edit it, double-click to rename, drag to reorder, ▶ to go there like the game does.
+- **Stings** play once. One can be a segment's way in (*Enter through* in the bar above the editor; it shows as "⚡ Alert ›" on the segment). *Can play anytime* plays one like the game's PlaySting (the segment restarts after it). **End** ends the music on a sting, or fades out.
+- **Changes land on** the next beat, bar, or end of the segment.
+- **Simulate** (right of the map) plays the level like the game: ▶ Start from the first segment, Fade out, and the **intensity** slider. The transport's ▶ just loops the selected pattern.
+- **Intensity layers** (Mixer & FX) group tracks into stacked layers (e.g. Base → Rhythm → Intensity). The base always plays; each layer above fades in as intensity rises.
 
 ## Unity export
 

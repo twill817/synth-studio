@@ -112,7 +112,7 @@ const UI = {
     this.initMixer();
     this.initStyle();
     this.initLibrary();
-    this.initAdaptive();
+    this.initMap();
     this.initInst();
     this.initKeyboard();
     this.initExport();
@@ -159,10 +159,9 @@ const UI = {
       Engine.master(); App.changed();
     });
     $('#swing').addEventListener('input', (e) => { App.song.swing = +e.target.value; App.changed(); });
-    $('#btnPlay').onclick = () => (Seq.playing ? Seq.stop() : Seq.start());
+    $('#btnPlay').onclick = () => this.playPause();
     $('#btnStop').onclick = () => { Seq.stop(); Live.allOff(); };
     $('#btnRec').onclick = () => this.toggleRec();
-    $$('#modeSeg button').forEach((b) => (b.onclick = () => this.setMode(b.dataset.mode)));
     $('#btnMetro').onclick = (e) => { App.metro = !App.metro; e.target.classList.toggle('on', App.metro); };
     $('#btnClaude').onclick = () => Bridge.toggle();
     $('#btnUndo').onclick = () => App.undo();
@@ -185,29 +184,32 @@ const UI = {
     const wasPlaying = Seq.playing;
     if (wasPlaying) Seq.stop();
     App.mode = m;
-    $$('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
     Engine.layers();                     // layer fades apply only in Adaptive mode
     this.renderAdaptive();
     if (wasPlaying && restart) Seq.start();
   },
+  /* The transport plays the selected pattern on a loop; the map's Simulate plays the level like the game. */
+  playPause() {
+    if (Seq.playing) return Seq.stop();
+    if (App.mode !== 'pattern') this.setMode('pattern', false);
+    Seq.start();
+  },
   toggleRec() {
     App.recording = !App.recording;
     $('#btnRec').classList.toggle('on', App.recording);
-    if (App.recording && !Seq.playing) Seq.start();
+    if (App.recording && !Seq.playing) this.playPause();
     if (!App.recording) Live.finishRecording();
   },
   onTransport() {
     $('#btnPlay').classList.toggle('on', Seq.playing);
     $('#btnPlay').textContent = Seq.playing ? '❚❚' : '▶';
-    const fade = $('#adpFade');
-    if (fade) fade.hidden = !Seq.playing;          // fading only means something while playing
-    if (!Seq.playing) this.markAdaptive();
+    this.markMap();
     const pt = $('#btnArrPlay');
     if (pt) pt.textContent = Seq.playing && App.mode === 'song' ? '■ Stop' : '▶ Play it';
     if (!Seq.playing) {
       $('#posDisplay').textContent = '1.1.1';
       this.markBeatStep(-1);
-      $$('.pattern-item.playing, .arr-block.playing').forEach((e) => e.classList.remove('playing'));
+      $$('.arr-block.playing').forEach((e) => e.classList.remove('playing'));
       Roll.draw();
     }
   },
@@ -321,42 +323,6 @@ const UI = {
       this.renameTrack(it.dataset.id);
     });
 
-    const pl = $('#patternList');
-    pl.addEventListener('click', (e) => {
-      const it = e.target.closest('.pattern-item');
-      if (!it) return;
-      if (e.target.dataset.act === 'del') return this.deletePattern(+it.dataset.i);
-      this.pickPattern(+it.dataset.i);
-      if (e.target.dataset.act === 'rename') this.renamePattern(+it.dataset.i, 'side');
-    });
-    pl.addEventListener('dblclick', (e) => {
-      const it = e.target.closest('.pattern-item');
-      if (!it || e.target.closest('button')) return;
-      this.renamePattern(+it.dataset.i, 'side');
-    });
-    $('#btnAddPattern').onclick = () => {
-      App.pushUndo();
-      const p = makePattern('Pattern ' + (App.song.patterns.length + 1), App.pattern() ? App.pattern().bars : 2);
-      App.song.patterns.push(p); ensurePattern(p);
-      this.selectPattern(App.song.patterns.length - 1); App.changed();
-    };
-    $('#btnDupPattern').onclick = () => {
-      App.pushUndo();
-      Library.duplicatePattern(App.pattern(), App.song, App.sel.pattern + 1);
-      App.song.arrangement = App.song.arrangement.map((i) => (i > App.sel.pattern ? i + 1 : i));
-      this.selectPattern(App.sel.pattern + 1); App.changed();
-    };
-    $('#btnDelPattern').onclick = () => this.deletePattern(App.sel.pattern);
-    $('#btnPlace').onclick = () => {
-      const it = Library.find($('#placeSel').value);
-      if (!it) return;
-      App.pushUndo();
-      Library.place(it, App.song);
-      App.changed();
-      this.selectPattern(App.song.patterns.length - 1);
-      const d = Library.offset(App.song, it);
-      toast(`Placed “${it.name}” — linked, so edits change it everywhere it's used${d ? ` (shifted ${d > 0 ? '+' : ''}${d} to ${NOTE_NAMES[App.song.key]})` : ''}`, 3500);
-    };
     // "Make a version for this level" / "Back to the library version", above the Beat grid and Piano Roll.
     $('#workspace').addEventListener('click', (e) => {
       const b = e.target.closest('[data-libact]');
@@ -373,10 +339,18 @@ const UI = {
   renderLibBar() {
     const p = App.pattern(), s = App.song;
     let html = '';
+    if (!p) { $$('.lib-bar').forEach((el) => { el.innerHTML = ''; el.hidden = true; }); return; }
+    const stings = s.patterns.filter((q) => q.kind === 'sting');
+    const head = `<b class="pb-name">${p.kind === 'sting' ? '⚡ ' : ''}${esc(p.name)}</b>
+      <select data-pb="kind" title="A segment loops while the game stays in it; a sting plays once"><option value="loop" ${p.kind !== 'sting' ? 'selected' : ''}>Segment · loops</option><option value="sting" ${p.kind === 'sting' ? 'selected' : ''}>Sting · plays once</option></select>
+      ${p.kind !== 'sting' && stings.length ? `<label title="The game plays this sting on the way into ${esc(p.name)}, from any segment">Enter through <select data-pb="entry"><option value="">no sting</option>${stings.map((q) => `<option value="${q.id}" ${p.entrySting === q.id ? 'selected' : ''}>⚡ ${esc(q.name)}</option>`).join('')}</select></label>` : ''}
+      <button data-pbact="dup" title="Copy this pattern as a new, separate library item">Duplicate</button>
+      ${s.patterns.length > 1 ? '<button data-pbact="remove" title="Remove from this level (it stays in the library)">Remove</button>' : ''}
+      <span class="pb-sep"></span>`;
     if (p && p.lib && Library.of(p)) {
       const it = Library.of(p), also = Library.alsoIn(p, s);
       html = `<span class="scope style">From the library</span><b>${esc(it.name)}</b>
-        <span class="muted">${also.length ? `also plays in ${esc(also.join(', '))} — edits here change it there too` : 'only used in this level so far'}</span>
+        <span class="muted">${also.length ? `also plays in ${esc(also.join(', '))} — edits here change it there too` : 'only in this level so far'}</span>
         ${it.scale !== s.scale ? `<span class="muted" title="Notes are moved to this level's key by whole semitones, not refitted to its scale">· written in ${SCALES[it.scale].name.toLowerCase()}</span>` : ''}
         <button data-libact="own" title="Split this pattern off so edits stay in ${esc(s.name)}">Make a version for this level</button>`;
     } else if (p && p.from && Library.find(p.from)) {
@@ -384,7 +358,7 @@ const UI = {
         <span class="muted">Edits stay in ${esc(s.name)}.</span>
         <button data-libact="relink" title="Drop this level's changes and use the library's version again">Back to the library version</button>`;
     }
-    $$('.lib-bar').forEach((el) => { el.innerHTML = html; el.hidden = !html; });
+    $$('.lib-bar').forEach((el) => { el.innerHTML = head + html; el.hidden = false; });
   },
   /* Library patterns that could go into this level. */
   renderPlace() {
@@ -416,7 +390,7 @@ const UI = {
   /* Inline rename. Elements are looked up fresh because clicks re-render the lists. */
   renamePattern(i, where, k) {
     const p = App.song.patterns[i];
-    const el = where === 'side' ? $(`.pattern-item[data-i="${i}"] .name`)
+    const el = where === 'map' ? $(`#mapBody [data-i="${i}"] .name`)
       : where === 'palette' ? $(`.arr-pat[data-i="${i}"] .name`)
       : $(`.arr-block[data-k="${k}"] small`);
     inlineRename(el, p.name, (v) => {
@@ -433,7 +407,7 @@ const UI = {
     });
   },
   /* Picking a track in the sidebar while editing notes opens its editor: drums → Beat,
-     instruments → Piano Roll. Other tabs (Adaptive, Mixer, Game Style) stay put. */
+     instruments → Piano Roll. Other tabs (Mixer, Library, Game Style) stay put. */
   followTrackView(t) {
     if (!t || (this.view !== 'beat' && this.view !== 'roll')) return;
     this.showView(t.type === 'drum' ? 'beat' : 'roll');
@@ -453,7 +427,7 @@ const UI = {
     if (i === App.sel.pattern) return;
     App.sel.pattern = i;
     Roll.sel.clear();
-    $$('.pattern-item').forEach((e) => e.classList.toggle('sel', +e.dataset.i === i));
+    $$('#mapBody [data-i]').forEach((e) => e.classList.toggle('sel', +e.dataset.i === i));
     $$('.barsSel').forEach((s) => (s.value = App.pattern().bars));
     this.renderBeat(); this.renderRollBar(); this.renderLibBar(); Roll.draw();
   },
@@ -534,7 +508,7 @@ const UI = {
 
   renderTracks() {
     $('#trackList').innerHTML = App.song.tracks.map((t) => `
-      <div class="track-item ${t.id === App.sel.track && !App.sel.role ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — role: ${esc((roleOf(t) || {}).name || '?')}, sound: ${esc(soundName(snd(t)))}${t.sound ? ' (customized for this level)' : ''} · double-click name to rename">
+      <div class="track-item ${t.id === App.sel.track && !App.sel.role ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — role: ${esc((roleOf(t) || {}).name || '?')}${App.song.layers.length > 1 ? `, intensity layer: ${esc((App.song.layers.find((l) => l.id === t.layer) || {}).name || '?')}` : ''}, sound: ${esc(soundName(snd(t)))}${t.sound ? ' (customized for this level)' : ''} · double-click name to rename">
         <span class="dot" style="background:${t.color}"></span>
         <span class="name">${esc(t.name)}</span>
         ${t.sound ? '<span class="flavor" title="Custom sound for this level">✦</span>' : ''}
@@ -552,19 +526,6 @@ const UI = {
     if (p.from && Library.find(p.from)) return `<span class="lib-tag own" title="${esc(App.song.name)}’s own version of ${esc(Library.find(p.from).name)}">⇄</span>`;
     return '';
   },
-  renderPatterns() {
-    $('#patternList').innerHTML = App.song.patterns.map((p, i) => `
-      <div class="pattern-item ${i === App.sel.pattern ? 'sel' : ''}" data-i="${i}" title="Double-click name to rename">
-        <span class="letter" style="border-left:3px solid ${patColor(i)}">${patLetter(i)}</span>
-        <span class="name">${esc(p.name)}</span>${p.kind === 'sting' ? '<span class="sting-tag" title="Sting — plays once, for transitions">⚡</span>' : ''}${this.libMark(p)}<button class="edit" data-act="rename" title="Rename pattern">✎</button><span class="bars">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
-        ${App.song.patterns.length > 1 ? '<button class="x" data-act="del" title="Remove from this level (it stays in the library)">✕</button>' : ''}
-      </div>`).join('');
-    this.renderPlace();
-    this.renderLibBar();
-    $$('.barsSel').forEach((s) => (s.value = App.pattern().bars));
-    $('#btnDelPattern').hidden = App.song.patterns.length <= 1;
-  },
-
   /* ---------- beat grid ---------- */
   drumTrack() {
     const s = App.song;
@@ -801,8 +762,61 @@ const UI = {
     $('#arrLen').textContent = `— ${bars} bars · ${Math.floor(secs / 60)}:${String(Math.round(secs % 60)).padStart(2, '0')}`;
   },
 
+  /* ---------- intensity layers (Mixer & FX) ---------- */
+  initLayers() {
+    const lp = $('#layerPanel');
+    lp.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-act]');
+      if (!b) return;
+      const s = App.song, act = b.dataset.act;
+      if (act === 'addLayer') {
+        App.pushUndo();
+        s.layers.push({ id: uid(), name: 'Layer ' + (s.layers.length + 1) });
+      } else if (act === 'delLayer') {
+        const L = s.layers.find((l) => l.id === b.dataset.id);
+        App.pushUndo();
+        s.layers = s.layers.filter((l) => l !== L);
+        s.tracks.forEach((t) => { if (t.layer === L.id) t.layer = s.layers[0].id; });
+        undoToast(`Removed layer “${L.name}” — its tracks moved to ${s.layers[0].name}`);
+      } else if (act === 'renameLayer') {
+        const L = s.layers.find((l) => l.id === b.dataset.id);
+        return inlineRename($(`.layer-row[data-id="${L.id}"] .name`), L.name, (v) => {
+          if (v) { App.pushUndo(); L.name = v; App.changed(); }
+          this.renderMixer(); this.renderSim(); this.renderTracks();
+        });
+      } else return;
+      Engine.layers(); App.changed();
+      this.renderMixer(); this.renderSim(); this.renderTracks();
+    });
+    $('#mixer').addEventListener('pointerdown', (e) => { if (e.target.matches('select[data-tlayer]')) App.pushUndo(); });
+    $('#mixer').addEventListener('change', (e) => {
+      const id = e.target.dataset.tlayer;
+      if (!id) return;
+      e.stopPropagation();
+      App.track(id).layer = e.target.value;
+      Engine.layers(); App.changed();
+      this.renderLayers(); this.renderTracks();
+    }, true);
+  },
+  renderLayers() {
+    const s = App.song, lp = $('#layerPanel');
+    if (!lp) return;
+    lp.innerHTML = `<div class="layer-head"><span class="cap">Intensity layers</span>
+        <span class="muted">The first always plays; each one above fades in as intensity rises (Simulate, or SetIntensity in the game). Each becomes its own stem in Unity. Pick a track's layer on its strip below.</span></div>
+      <div class="layer-list">${s.layers.map((l, i) => {
+        const ts = s.tracks.filter((t) => t.layer === l.id);
+        return `<div class="layer-row" data-id="${l.id}">
+          <span class="lvl-idx">${i === 0 ? 'always on' : 'level ' + i}</span>
+          <span class="name">${esc(l.name)}</span><button class="edit" data-act="renameLayer" data-id="${l.id}" title="Rename layer">✎</button>
+          <span class="chips">${ts.map((t) => `<span class="chip" style="--c:${t.color}">${esc(t.name)}</span>`).join('') || '<span class="muted">no tracks</span>'}</span>
+          ${i > 0 ? `<button class="x" data-act="delLayer" data-id="${l.id}" title="Remove layer">✕</button>` : '<span></span>'}
+        </div>`;
+      }).join('')}</div><button data-act="addLayer">+ Layer</button>`;
+  },
+
   /* ---------- mixer ---------- */
   initMixer() {
+    this.initLayers();
     const mx = $('#mixer');
     wire(mx, (el) => {
       const strip = el.closest('.strip');
@@ -829,9 +843,12 @@ const UI = {
   },
   renderMixer() {
     const s = App.song, m = s.mix || App.style.mix;
+    this.renderLayers();
+    const layerOpts = (cur) => s.layers.map((l) => `<option value="${l.id}" ${l.id === cur ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
     $('#mixer').innerHTML = s.tracks.map((t) => `
       <div class="strip" data-id="${t.id}" style="--c:${t.color}">
         <h4 title="${esc(t.name)}">${esc(t.name)}</h4>
+        <label class="strip-layer" title="Intensity layer: the base always plays; layers above fade in as intensity rises"><span><i>Layer</i></span><select data-tlayer="${t.id}">${layerOpts(t.layer)}</select></label>
         <div class="ms-row"><button class="ms m ${t.mute ? 'on' : ''}" data-act="mute">M</button><button class="ms s ${t.solo ? 'on' : ''}" data-act="solo">S</button></div>
         ${ctl('Volume', 'vol', t.vol, 0, 1.2, 0.01, 'pct')}
         ${ctl('Pan', 'pan', t.pan, -1, 1, 0.01, 'pan')}
@@ -953,147 +970,6 @@ const UI = {
         ${ctl('Vibrato depth', 'lfoDepth', p.lfoDepth, 0, 50, 1, 'ct')}
         ${ctl('Level', 'gain', p.gain, 0, 1.6, 0.01, 'pct')}
       </div>`;
-  },
-
-  /* ---------- Adaptive tab: segments, stings, layers, live preview ---------- */
-  initAdaptive() {
-    const ap = $('#adaptivePanel');
-    ap.addEventListener('click', (e) => {
-      const b = e.target.closest('button');
-      if (!b) return;
-      const s = App.song;
-      if (b.dataset.seg !== undefined) return Seq.request(+b.dataset.seg);
-      if (b.dataset.sting !== undefined) return Seq.request(+b.dataset.sting, true);
-      if (b.dataset.end !== undefined) return Seq.end(+b.dataset.end);
-      if (b.dataset.act === 'fadeOut') return Seq.fadeOut(2);
-      const act = b.dataset.act;
-      if (act === 'addLayer') {
-        App.pushUndo();
-        s.layers.push({ id: uid(), name: 'Layer ' + (s.layers.length + 1) });
-        this.renderAdaptive(); Engine.layers(); App.changed();
-      } else if (act === 'delLayer') {
-        const L = s.layers.find((l) => l.id === b.dataset.id);
-        App.pushUndo();
-        s.layers = s.layers.filter((l) => l !== L);
-        s.tracks.forEach((t) => { if (t.layer === L.id) t.layer = s.layers[0].id; });
-        this.renderAdaptive(); Engine.layers(); App.changed();
-        undoToast(`Removed layer “${L.name}” — its tracks moved to ${s.layers[0].name}`);
-      } else if (act === 'renameLayer') {
-        const L = s.layers.find((l) => l.id === b.dataset.id);
-        inlineRename($(`.layer-row[data-id="${L.id}"] .name`), L.name, (v) => {
-          if (v) { App.pushUndo(); L.name = v; App.changed(); }
-          this.renderAdaptive();
-        });
-      }
-    });
-    ap.addEventListener('pointerdown', (e) => { if (e.target.matches('select[data-kind], select[data-entry], select[data-tlayer], select[data-adp]')) App.pushUndo(); });
-    ap.addEventListener('change', (e) => {
-      const el = e.target, s = App.song;
-      if (el.dataset.kind !== undefined) {
-        const p = s.patterns[+el.dataset.kind];
-        p.kind = el.value;
-        if (p.kind === 'sting') p.entrySting = null;
-        else s.patterns.forEach((q) => { if (q.entrySting === p.id) q.entrySting = null; });
-        this.renderPatterns();
-      } else if (el.dataset.entry !== undefined) s.patterns[+el.dataset.entry].entrySting = el.value || null;
-      else if (el.dataset.tlayer !== undefined) { App.track(el.dataset.tlayer).layer = el.value; Engine.layers(); }
-      else if (el.dataset.adp === 'quant') s.adaptive.quant = el.value;
-      else return;
-      App.changed();
-      this.renderAdaptive();
-    });
-    ap.addEventListener('input', (e) => {
-      if (e.target.id !== 'intensity') return;
-      App.intensity = +e.target.value;
-      Engine.layers();
-      this.showLayerLevels();
-    });
-  },
-  showLayerLevels() {
-    const s = App.song;
-    $$('.lvl-meter').forEach((el) => {
-      const i = +el.dataset.i;
-      const g = i === 0 ? 1 : clamp(App.intensity * (s.layers.length - 1) - (i - 1), 0, 1);
-      el.style.setProperty('--lvl', g);
-      el.title = `${s.layers[i].name}: ${Math.round(g * 100)}%`;
-    });
-    const v = $('#intensityVal');
-    if (v) v.textContent = Math.round(App.intensity * 100) + '%';
-  },
-  renderAdaptive() {
-    const ap = $('#adaptivePanel');
-    if (!ap) return;
-    const s = App.song;
-    const loops = s.patterns.map((p, i) => ({ p, i })).filter((x) => x.p.kind !== 'sting');
-    const stings = s.patterns.map((p, i) => ({ p, i })).filter((x) => x.p.kind === 'sting');
-    const quantName = { beat: 'next beat', bar: 'next bar', end: 'end of the segment' }[s.adaptive.quant];
-    const layerOpts = (cur) => s.layers.map((l) => `<option value="${l.id}" ${l.id === cur ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
-    ap.innerHTML = `
-      <section class="adp-sec">
-        <h4 class="subhead">Preview — play it the way the game will</h4>
-        <p class="muted">Pick a segment to start. While it plays, pick another: the change lands on the ${quantName}${stings.length ? ', through its entry sting if it has one' : ''}. Raise intensity to fade in the upper layers. To finish, end on a sting or fade out, as the game does when a run or level ends.</p>
-        <div class="seg-buttons">${loops.length ? loops.map(({ p, i }) => `<button class="seg-btn" data-seg="${i}" style="--c:${patColor(i)}">${esc(p.name)}<small>${p.bars} bar${p.bars > 1 ? 's' : ''}${p.entrySting && Seq.stingIndex(p.entrySting) !== null ? ' · ⚡' : ''}</small></button>`).join('')
-          : '<span class="muted">No segments yet — set a pattern’s type to Segment below.</span>'}</div>
-        ${stings.length ? `<div class="sting-buttons"><span class="muted">Play a sting:</span>${stings.map(({ p, i }) => `<button class="seg-btn sting" data-sting="${i}">⚡ ${esc(p.name)}</button>`).join('')}</div>` : ''}
-        ${stings.length ? `<div class="sting-buttons end-buttons"><span class="muted">End the music:</span>${stings.map(({ p, i }) => `<button class="seg-btn sting" data-end="${i}" title="At the next change point the loop stops and ${esc(p.name)} plays once — like End With Sting in Unity (a level's finish, game over)">End on ⚡ ${esc(p.name)}</button>`).join('')}<button id="adpFade" class="seg-btn" data-act="fadeOut" title="Fade everything out over 2 seconds, like Stop in Unity" ${Seq.playing ? '' : 'hidden'}>Fade out</button></div>` : ''}
-        ${s.layers.length > 1 ? `
-          <div class="intensity">
-            <label>Intensity <input id="intensity" type="range" min="0" max="1" step="0.01" value="${App.intensity}"><b id="intensityVal"></b></label>
-            <div class="lvls">${s.layers.map((l, i) => `<div class="lvl"><span class="lvl-meter" data-i="${i}"></span><span>${esc(l.name)}</span></div>`).join('')}</div>
-          </div>` : '<p class="muted">Add a second layer below to preview intensity.</p>'}
-        <label>Change segment on <select data-adp="quant">
-          <option value="beat" ${s.adaptive.quant === 'beat' ? 'selected' : ''}>Next beat</option>
-          <option value="bar" ${s.adaptive.quant === 'bar' ? 'selected' : ''}>Next bar</option>
-          <option value="end" ${s.adaptive.quant === 'end' ? 'selected' : ''}>End of segment</option></select></label>
-      </section>
-
-      <section class="adp-sec">
-        <h4 class="subhead">Segments &amp; stings</h4>
-        <p class="muted">A <b>segment</b> loops while the game stays in that state (explore, combat, boss…). A <b>sting</b> plays once — use it as the way into a segment.</p>
-        <div class="adp-table">${s.patterns.map((p, i) => `
-          <div class="adp-row">
-            <span class="letter" style="border-left:3px solid ${patColor(i)}">${patLetter(i)}</span>
-            <span class="name">${esc(p.name)}</span><span class="muted">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
-            <select data-kind="${i}" aria-label="Type"><option value="loop" ${p.kind !== 'sting' ? 'selected' : ''}>Segment (loops)</option><option value="sting" ${p.kind === 'sting' ? 'selected' : ''}>Sting (once)</option></select>
-            ${p.kind !== 'sting' && stings.length ? `<label>Enter through <select data-entry="${i}"><option value="">no sting</option>${stings.map((x) => `<option value="${x.p.id}" ${p.entrySting === x.p.id ? 'selected' : ''}>⚡ ${esc(x.p.name)}</option>`).join('')}</select></label>` : '<span></span>'}
-          </div>`).join('')}</div>
-      </section>
-
-      <section class="adp-sec">
-        <h4 class="subhead">Intensity layers</h4>
-        <p class="muted">Layers stack from the bottom: the first is always playing, each one above fades in as intensity rises. Each layer becomes its own stem for Unity.</p>
-        <div class="layer-list">${s.layers.map((l, i) => {
-          const ts = s.tracks.filter((t) => t.layer === l.id);
-          return `<div class="layer-row" data-id="${l.id}">
-            <span class="lvl-idx">${i === 0 ? 'always on' : 'level ' + i}</span>
-            <span class="name">${esc(l.name)}</span><button class="edit" data-act="renameLayer" data-id="${l.id}" title="Rename layer">✎</button>
-            <span class="chips">${ts.map((t) => `<span class="chip" style="--c:${t.color}">${esc(t.name)}</span>`).join('') || '<span class="muted">no tracks</span>'}</span>
-            ${i > 0 ? `<button class="x" data-act="delLayer" data-id="${l.id}" title="Remove layer">✕</button>` : '<span></span>'}
-          </div>`;
-        }).join('')}</div>
-        <button data-act="addLayer">+ Layer</button>
-        <div class="track-layers">${s.tracks.map((t) => `
-          <label><span class="dot" style="background:${t.color}"></span>${esc(t.name)} <select data-tlayer="${t.id}">${layerOpts(t.layer)}</select></label>`).join('')}</div>
-      </section>`;
-    this.showLayerLevels();
-  },
-  /* Called every frame while playing in Adaptive mode: light up the playing / queued segment. */
-  markAdaptive() {
-    const A = Seq.adapt;
-    $$('#adaptivePanel .seg-btn').forEach((b) => {
-      if (b.dataset.end !== undefined) {           // "End on ⚡ X": lit while that ending is queued or playing
-        const i = +b.dataset.end;
-        b.classList.toggle('playing', !!(A && A.ending && A.cur === i));
-        b.classList.toggle('queued', !!(A && A.next && A.next.end && A.next.sting === i));
-        return;
-      }
-      if (b.dataset.act) return;
-      const i = +(b.dataset.seg ?? b.dataset.sting);
-      const playing = A && A.cur === i && !A.ending;
-      const queued = A && ((A.next && (A.next.target === i && b.dataset.seg !== undefined || A.next.sting === i)) || (A.after === i && b.dataset.seg !== undefined));
-      b.classList.toggle('playing', !!playing);
-      b.classList.toggle('queued', !!queued && !playing);
-    });
   },
 
   /* ---------- Library tab: every segment, sting and melody in the game ---------- */
@@ -1498,7 +1374,7 @@ const UI = {
         return;
       }
       if (e.repeat) { if (k === ' ') e.preventDefault(); return; }
-      if (k === ' ') { e.preventDefault(); Seq.playing ? Seq.stop() : Seq.start(); return; }
+      if (k === ' ') { e.preventDefault(); this.playPause(); return; }
       if (k === 'enter') { Seq.stop(); Live.allOff(); return; }
       if (k === 'delete' || k === 'backspace') { if (this.view === 'roll') { e.preventDefault(); Roll.deleteSelected(); } return; }
       if (k === 'z') return this.shiftOct(-1);
@@ -1553,12 +1429,11 @@ const UI = {
       this.markBeatStep(pos.pat === App.sel.pattern ? Math.floor(pos.local) : -1);
       if (pos.pat !== this._playPat || pos.block !== this._playBlock) {
         this._playPat = pos.pat; this._playBlock = pos.block;
-        $$('.pattern-item').forEach((e) => e.classList.toggle('playing', +e.dataset.i === pos.pat));
         $$('.arr-block').forEach((e) => e.classList.toggle('playing', App.mode === 'song' && +e.dataset.k === pos.block));
       }
       if (this.view === 'roll') Roll.draw(pos);
     } else this._playPat = this._playBlock = null;
-    if (this.view === 'adaptive') this.markAdaptive();
+    this.markMap(pos);
     this.drawScope();
   },
   drawScope() {

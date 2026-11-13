@@ -358,7 +358,7 @@ Object.assign(BridgeAPI, {
       if (!did.length) throw new Error('Nothing to change.');
       Edit._show = { pattern: p };
       return `${s.name} › ${p.name}: ${did.join(', ')}.`;
-    }, Edit.consumeShow('adaptive'));
+    }, Edit.consumeShow());
   },
 
   deletePattern({ score, pattern }) {
@@ -458,7 +458,7 @@ Object.assign(BridgeAPI, {
       if (!did.length) throw new Error('Give layers and/or assign.');
       Engine.layers();
       return `${s.name}: ${did.join('; ')}. Layer contents: ${s.layers.map((l) => `${l.name} [${s.tracks.filter((t) => t.layer === l.id).map((t) => t.name).join(', ') || 'empty'}]`).join(', ')}.`;
-    }, { view: 'adaptive' });
+    }, { view: 'mixer' });
   },
 
   addTrack({ score, role, name, layer }) {

@@ -456,7 +456,7 @@ prompt('compose_segment', 'Compose a segment for a game moment',
 4. Make sure every intensity layer has something to add in this segment (set_layers if needed), so SetIntensity works here too.
 5. If the moment is a sudden change (danger, discovery), add a 1-bar sting (add_pattern kind sting) and set it as the entry_sting.
 6. check_consistency for this score and fix any problems or checks you caused.
-7. Tell the user, in plain words, what you wrote (instruments, theme use, layers, sting) and ask them to listen: Adaptive tab → click the segment, try the intensity slider. Remind them every step can be undone in the app.`);
+7. Tell the user, in plain words, what you wrote (instruments, theme use, layers, sting) and ask them to listen: on the level map, ▶ the segment (or Simulate › Start), and try the intensity slider. Remind them every step can be undone in the app.`);
 
 prompt('ship_to_unity', 'Check, export and ship to Unity',
   'Get the soundtrack ready and write it into the Unity project: consistency check, loudness analysis, a previewed export, then the export itself — following the Unity project\'s own rules.',
