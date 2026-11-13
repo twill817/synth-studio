@@ -78,7 +78,7 @@ const Roll = {
       const th = Themes.capture(`${App.pattern().name} ${t.name}`, src, t);
       if (!this.sel.size) App.pattern().origins[t.id] = { theme: th.id, oct: 0, speed: 1, fit: true };
       this.renderThemeBar(); $('#themeSel').value = th.id; UI.renderStyle(); App.changed();
-      toast(`Saved theme “${th.name}” — rename or hear it in Game Style → Themes`, 3500);
+      toast(`Saved melody “${th.name}” — rename or hear it in the Library tab`, 3500);
     };
     $('#btnThemeReapply').onclick = () => {
       const t = this.track(), o = this.origin();
@@ -101,7 +101,7 @@ const Roll = {
   },
   /* Show only the theme controls that apply right now. */
   renderThemeBar() {
-    const t = this.track(), themes = App.project.themes;
+    const t = this.track(), themes = Library.melodies();
     $('#themeBar').hidden = !t;
     if (!t) return;
     const sel = $('#themeSel'), cur = sel.value;

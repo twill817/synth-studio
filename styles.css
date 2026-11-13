@@ -142,6 +142,31 @@ main { display: grid; grid-template-columns: 230px 1fr; min-height: 0; }
 #rollKeys { position: sticky; left: 0; z-index: 2; flex: none; }
 #rollGrid { cursor: crosshair; flex: none; }
 
+/* Library */
+.lib-tag { color: #8cc8f5; font-size: 12px; flex: none; }
+.lib-tag.own { color: #ffc46b; }
+.lib-bar { gap: 8px; font-size: 12px; }
+.lib-bar button { font-size: 11px; padding: 2px 8px; }
+.style-sec.lib-sec { max-width: 980px; }
+.lib-filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+.chip-btn { border-radius: 999px; font-size: 12px; padding: 4px 12px; }
+.chip-btn.on { border-color: var(--accent); background: var(--panel2); color: var(--text); }
+.lib-row { display: grid; grid-template-columns: 82px minmax(120px, 1fr) 20px 150px auto 22px; grid-template-areas: "kind name edit snd acts x" ". use use use use ."; align-items: center; gap: 2px 8px; padding: 6px 8px; border-radius: 6px; background: #1a1d23; }
+.lib-row .kind { grid-area: kind; } .lib-row .name { grid-area: name; } .lib-row .edit { grid-area: edit; } .lib-row .snd { grid-area: snd; }
+.lib-row .acts { grid-area: acts; } .lib-row .x { grid-area: x; } .lib-row .use { grid-area: use; }
+.lib-row:hover .edit { opacity: 1; }
+.lib-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-row .snd { font-size: 12px; }
+.lib-row .use { font-size: 11px; line-height: 1.4; }
+.lib-row .acts { display: flex; gap: 6px; align-items: center; }
+.lib-row .acts button { font-size: 11px; padding: 2px 8px; }
+.lib-row .in-level { font-size: 11px; }
+.lib-row .kind { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #8cc8f5; }
+.lib-row .kind-sting { color: #ffc46b; }
+.lib-row .kind-melody { color: #e599f7; }
+.own-note { color: #ffc46b; }
+#placeRow select { flex: 1; min-width: 0; }
+
 /* Playthrough (in the Export dialog) */
 dialog.wide { width: min(680px, calc(100vw - 32px)); }
 .playthrough { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 6px 22px; }

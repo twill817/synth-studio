@@ -27,7 +27,7 @@ Object.assign(BridgeAPI, {
 
     if (!score) {
       st.roles.forEach((r) => { if (!App.roleUsage(r.id).tracks) add('note', `Game style › ${r.name}`, 'Role isn\'t used by any score.', 'Use it (add_track) or remove it (manage_role).'); });
-      P.themes.forEach((t) => {
+      Library.melodies().forEach((t) => {
         const used = P.scores.filter((s) => s.patterns.some((p) => Object.values(p.origins || {}).some((o) => o.theme === t.id)));
         if (!used.length) add('note', `Theme › ${t.name}`, 'Theme isn\'t used in any level.', 'insert_theme it somewhere, or ignore.');
         else if (used.length < P.scores.length) add('note', `Theme › ${t.name}`, `Used in ${used.map((s) => s.name).join(', ')} but not in ${P.scores.filter((s) => !used.includes(s)).map((s) => s.name).join(', ')}.`, 'Hearing the main theme in every level helps them feel like one game.');

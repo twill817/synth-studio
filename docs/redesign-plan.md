@@ -43,11 +43,59 @@ Game
 Each step ships on its own, keeps the app working, and is checked against the must-keep list.
 
 1. ✅ **Wording and scope** (done 2026-11-12). Scores → Levels in the app; "From the game style" / "Customized for this level" / "Back to the game style" on every scope badge and button. Song mode and the Arrange tab are gone; their pattern order is now the *playthrough* in the Export dialog (add, reorder, remove, ▶ Play it, Loop, Clear). The data is still `score.arrangement`; `set_arrangement` now describes it as the export playthrough, and `get_score` reports it as `playthrough`. MCP tool and argument names still say *score*: they change with the data model in step 2.
-2. **Library.** Project-level library of segments, stings and melodies; levels place them linked, with per-level versions. Themes become library melodies. Data model: library notes are stored per instrument role, so a pattern works in any level. Automatic migration of saved projects; MCP tools updated.
+2. ✅ **Library** (done 2026-11-12, as designed below; code in `js/library.js`). Library tab, ⇄ marks and Place in the sidebar, the library bar above the Beat grid and Piano Roll, `place_pattern` and `library_item` for Claude. Things to know:
+   - Changing a level's key now moves its linked patterns into the new key (the short way round, so D → E can move notes down rather than up).
+   - Every new level starts with an empty "Main" pattern, which also becomes a library item ("Main 2", …). Fine for now; the map in step 3 may start levels empty.
+   - The sidebar's Delete is now **Remove** (from this level); deleting from the game happens in the Library tab.
 3. **Level map (layout B).** Map strip replaces Arrange and Adaptive. Segments, arrows with stings/timing, anytime stings with their behaviour, play-on-map simulation.
 4. **Game events.** Events defined in Synth, fired from the Simulate panel, exported in the manifest; Unity MusicCues reads them, with its table for overrides only.
    - Unity work: play a sting *over* the music without stopping the loop (with ducking). "Instead, then back" is PlaySting; "End the music" is EndWithSting.
 5. **Later:** several instruments shown at once; maybe weave a theme into whatever is playing instead of a separate sting.
+
+## Step 2 design: the library
+
+### Today
+A pattern lives inside one level, and its notes are filed under that level's **track ids** (`pattern.notes[trackId]`, `pattern.drums[trackId]`). Another level has different track ids, so a pattern can't be reused: it has to be rebuilt. Themes are already game-wide (`project.themes`) and linked into patterns through `pattern.origins`.
+
+### New model
+```
+project.library = [ item ]
+item  = { id, name, kind: 'segment' | 'sting' | 'melody', bars, key, scale,
+          parts: { [partKey]: notes[] | drums{voice: steps[]} },   // segment / sting
+          notes, role }                                            // melody (today's theme)
+track.part      = partKey      // which part of a library pattern this track plays
+level pattern   = today's pattern + { lib: itemId | null, from: itemId | null }
+```
+- **Parts are named by instrument role, not by track.** A level's first Bass track plays the `bass` part, so any level with a Bass track can play the pattern. A second track on the same role (e.g. "Keys 2") gets its own part (`keys:2`).
+- **Linked**: `lib` is set. The level shows "From the library: Chase riff · also in Ice Caves". Editing it edits the library item, so every level that links it changes.
+- **Own version**: "Make a version for this level" sets `lib = null, from = itemId`. The level now has its own copy; "Back to the library version" drops the copy and relinks.
+- **Every pattern is in the library.** "+ New pattern" in a level creates a library item and places it. Removing a pattern from a level only removes it from that level; the item stays in the Library until deleted there.
+- **Melodies are today's themes**, moved into the library with `kind: 'melody'`. Insert, fit to key, octave, speed, re-apply and update keep working as now.
+- **Segment vs sting is the item's**, so it's the same everywhere. **Entry sting is the level's** (it's routing, and becomes an arrow on the map in step 3).
+
+### Key and tempo
+- A library item remembers the key it was written in. Placed in a level with another key, its pitched parts are **shifted to the level's key** (A minor → D minor = up 5 semitones). Drums aren't shifted. Tempo and swing are always the level's.
+- Shifting is exact both ways, so editing in either level and propagating loses nothing. If the level's scale differs (minor vs major), notes are shifted, not refitted, and the editor says so. Melodies keep today's "Fit to key" refit.
+
+### How it runs
+Levels keep a full working copy of each placed pattern in today's shape. Playback, Unity export, audio/MIDI export and the editors don't change. After every edit the copies sync: a linked copy writes its parts back to the library item (shifted into the item's key), and the item rewrites every other level's linked copy. Edits from Claude go through the same path.
+
+### Migration (automatic, on load)
+- Every existing pattern becomes a library item, linked from its level. Same-named items from different levels get the level's name added ("Explore (Ice Caves)"), since their notes differ.
+- Each track gets a part key from its role (second and later tracks of a role get `:2`, `:3`).
+- `project.themes` become melodies; links from `pattern.origins` keep working.
+- Undo history and saved files load as before; the first save writes the new shape.
+
+### UI in step 2 (before the map exists)
+- A **Library** tab: filter All / Segments / Stings / Melodies; each item's length, key and where it's used (linked or own version); Place in this level, Rename, Duplicate, Delete (asks first if it's used). Themes move here from the Game Style tab.
+- **Patterns sidebar**: each pattern shows a link mark; "+ Place from library" next to "+ New".
+- **Editors**: a badge above the Beat grid and Piano Roll, "From the library: X · also in …", with "Make a version for this level" / "Back to the library version".
+
+### Claude tools
+- `get_project` lists the library; `get_score` marks each pattern linked / own version.
+- New: `place_pattern` (put a library item in a level), `library_item` (rename, duplicate, delete, make own version, relink).
+- Theme tools keep their names and work on library melodies.
+- Edits to a linked pattern report which other levels changed.
 
 ## Must-keep list
 
@@ -74,7 +122,7 @@ Where every current control ends up. Tick each when its step ships.
 | Scores list, + New, Duplicate | Levels in the tree, + New level, Duplicate level (✅ renamed Levels; tree comes in step 3) |
 | Tracks list (select, colour, name, rename, ✦ custom mark, M, S, delete) | Track tabs in the segment editor |
 | + Track with role picker | "+ Track" at the end of the track tabs |
-| Patterns list, + New, Duplicate, Delete | Map nodes and Library (+ New pattern, Duplicate, Delete there) |
+| Patterns list, + New, Duplicate, Delete | Map nodes and Library (+ New pattern, Duplicate, Delete there). ✅ Step 2: Delete → Remove (from level) + Library delete; Duplicate makes a new library item; + Place from library |
 
 ### Beat grid (drums)
 - Drum track, Kit, scope badge, Bars, Beat loop + Load, ×2, Clear drums
@@ -113,7 +161,7 @@ Where every current control ends up. Tick each when its step ships.
 
 ### Game Style tab → Game style page
 - Instrument roles: list, select to edit, rename, sound, usage, remove, + Role
-- Themes → Library (melodies), with play, rename, usage, delete
+- ✅ Themes → Library (melodies), with play, rename, usage, delete; Game Style keeps a pointer to them
 - Flavors: list, rename, summary, Apply to this level, delete, Save this level's flavor
 - Defaults for new levels: Key, Scale, BPM
 - Master mix (moved here from the Mixer)

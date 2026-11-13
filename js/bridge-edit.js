@@ -111,6 +111,13 @@ const Edit = {
     if (show.pattern) { const k = s.patterns.indexOf(show.pattern); if (k >= 0) App.sel.pattern = k; }
     if (show.track && s.tracks.includes(show.track)) { App.sel.track = show.track.id; App.sel.role = null; if (show.track.type === 'drum') UI.beatTrackId = show.track.id; }
     ensureAll(s);
+    // Linked library patterns: an edit here also changes every other level that links the pattern.
+    const rewrote = Library.sync();
+    if (rewrote.length) {
+      const note = `Library: this pattern is linked, so it also changed in ${rewrote.join(', ')}.`;
+      if (typeof result === 'string') result += ' ' + note;
+      else if (result && typeof result === 'object') result.alsoChangedInOtherLevels = rewrote;
+    }
     Engine.sync(); Engine.master();
     UI.renderAll();
     if (show.view) UI.showView(show.view);
@@ -226,7 +233,7 @@ Object.assign(BridgeAPI, {
   insertTheme({ score, pattern, track, theme, fit = true, octave = 0, speed = 1, mode = 'replace' }) {
     return Edit.run(score, (s) => {
       const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track);
-      const th = Ref.pick(App.project.themes, theme, 'theme');
+      const th = Ref.pick(Library.melodies(), theme, 'theme (library melody)');
       if (!th) throw new Error('Which theme?');
       if (![0.5, 1, 2].includes(speed)) throw new Error('speed must be 0.5 (double speed), 1, or 2 (half speed).');
       ensurePattern(p, s);
@@ -242,7 +249,7 @@ Object.assign(BridgeAPI, {
       const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track);
       const ns = p.notes[t.id] || [];
       if (!ns.length) throw new Error(`${p.name} › ${t.name} has no notes to save.`);
-      if (App.project.themes.some((x) => x.name.toLowerCase() === String(name).toLowerCase())) throw new Error(`A theme called “${name}” already exists.`);
+      if (Library.items().some((x) => x.name.toLowerCase() === String(name).toLowerCase())) throw new Error(`The library already has an item called “${name}”.`);
       const th = Themes.capture(name, ns, t);
       p.origins[t.id] = { theme: th.id, oct: 0, speed: 1, fit: true };
       return `Saved theme “${th.name}” in ${MusicText.key(s)} (${th.bars} bar${th.bars > 1 ? 's' : ''}, ${th.notes.length} notes). This track is now linked to it.`;
@@ -251,7 +258,7 @@ Object.assign(BridgeAPI, {
 
   /* Refresh every linked use of a theme (after it changed) — keeps all levels consistent. */
   reapplyTheme({ theme, score }) {
-    const th = Ref.pick(App.project.themes, theme, 'theme');
+    const th = Ref.pick(Library.melodies(), theme, 'theme (library melody)');
     if (!th) throw new Error('Which theme?');
     const only = score ? Ref.score(score) : null;
     return Edit.run(only ? only.name : undefined, () => {
@@ -318,14 +325,14 @@ Object.assign(BridgeAPI, {
       if (s.patterns.some((p) => p.name.toLowerCase() === String(name).toLowerCase())) throw new Error(`“${s.name}” already has a pattern called “${name}”.`);
       if (![1, 2, 4, 8].includes(bars)) throw new Error('bars must be 1, 2, 4 or 8.');
       let p;
-      if (copyFrom) { const src = Ref.pattern(s, copyFrom); p = clone(src); p.id = uid(); p.name = name; }
+      if (copyFrom) { const src = Ref.pattern(s, copyFrom); p = clone(src); p.id = uid(); p.name = name; p.lib = undefined; p.from = null; delete p.libSig; p.entrySting = null; }
       else p = makePattern(name, bars, kind === 'sting' ? 'sting' : 'loop');
       if (kind) p.kind = kind === 'sting' ? 'sting' : 'loop';
       if (p.kind === 'sting') p.entrySting = null;
       s.patterns.push(p);
       ensurePattern(p, s);
       Edit._show = { pattern: p };
-      return `Added ${p.kind === 'sting' ? 'sting' : 'segment'} “${p.name}” (${p.bars} bar${p.bars > 1 ? 's' : ''}) to ${s.name}${copyFrom ? `, copied from ${copyFrom}` : ''}.`;
+      return `Added ${p.kind === 'sting' ? 'sting' : 'segment'} “${p.name}” (${p.bars} bar${p.bars > 1 ? 's' : ''}) to ${s.name}${copyFrom ? `, copied from ${copyFrom}` : ''}. It’s a new library item; place it in other levels with place_pattern.`;
     }, Edit.consumeShow());
   },
 
@@ -363,7 +370,62 @@ Object.assign(BridgeAPI, {
       s.arrangement = s.arrangement.filter((i) => i !== k).map((i) => (i > k ? i - 1 : i));
       s.patterns.forEach((q) => { if (q.entrySting === p.id) q.entrySting = null; });
       if (App.sel.pattern >= s.patterns.length) App.sel.pattern = s.patterns.length - 1;
-      return `Deleted “${p.name}” from ${s.name}${uses ? ` (and ${uses} block(s) from the export playthrough)` : ''}.`;
+      const item = Library.find(p.lib || p.from);
+      return `Removed “${p.name}” from ${s.name}${uses ? ` (and ${uses} block(s) from the export playthrough)` : ''}.` + (item ? ` “${item.name}” is still in the library.` : '');
+    });
+  },
+
+  /* ===== library ===== */
+  placePattern({ score, item, name, entrySting }) {
+    return Edit.run(score, (s) => {
+      const it = Ref.pick(Library.patterns(), item, 'library pattern');
+      if (!it) throw new Error('Which library item?');
+      if (Library.placedIn(it, s)) throw new Error(`“${it.name}” is already in ${s.name}.`);
+      const p = Library.place(it, s, name);
+      if (entrySting) {
+        const st = Ref.pattern(s, entrySting);
+        if (st.kind !== 'sting' || p.kind === 'sting') throw new Error('entry_sting must be a sting, and only a segment can have one.');
+        p.entrySting = st.id;
+      }
+      Edit._show = { pattern: p };
+      const d = Library.offset(s, it);
+      return `Placed “${it.name}” in ${s.name} as “${p.name}” (${it.kind}, ${it.bars} bar${it.bars > 1 ? 's' : ''}, linked)` +
+        (d ? `, shifted ${d > 0 ? '+' : ''}${d} semitones from ${NOTE_NAMES[it.key]} ${SCALES[it.scale].name} to ${MusicText.key(s)}` : '') +
+        (it.scale !== s.scale ? `. Note: it was written in ${SCALES[it.scale].name}; this level is ${SCALES[s.scale].name}, so notes are shifted, not refitted` : '') + '.';
+    }, Edit.consumeShow());
+  },
+
+  libraryItem({ action, item, score, pattern, name }) {
+    if (action === 'own_version' || action === 'relink') {
+      return Edit.run(score, (s) => {
+        const p = Ref.pattern(s, pattern);
+        Edit._show = { pattern: p };
+        if (action === 'own_version') {
+          if (!p.lib) throw new Error(`${s.name} › ${p.name} isn’t linked to the library.`);
+          const it = Library.of(p); Library.ownVersion(p);
+          return `${s.name} › ${p.name} is now this level’s own version of “${it.name}”: edits stay in ${s.name}.`;
+        }
+        if (!p.from || !Library.find(p.from)) throw new Error(`${s.name} › ${p.name} isn’t an own version of a library item.`);
+        const it = Library.find(p.from); Library.relink(p);
+        return `${s.name} › ${p.name} uses the library’s “${it.name}” again (this level’s own changes were dropped).`;
+      }, Edit.consumeShow());
+    }
+    const it = Ref.pick(Library.items(), item, 'library item');
+    if (!it) throw new Error('Which library item?');
+    return Edit.run(undefined, () => {
+      if (action === 'rename') {
+        if (!name) throw new Error('Give the new name.');
+        if (Library.items().some((x) => x !== it && x.name.toLowerCase() === String(name).toLowerCase())) throw new Error(`The library already has “${name}”.`);
+        const old = it.name; it.name = name;
+        return `Renamed library item “${old}” to “${it.name}” (level pattern names don’t change).`;
+      }
+      if (action === 'duplicate') { const c = Library.duplicateItem(it); if (name) c.name = Library.uniqueName(name, c); return `Duplicated “${it.name}” as “${c.name}” (not placed anywhere yet).`; }
+      if (action === 'delete') {
+        const u = it.kind === 'melody' ? [] : Library.uses(it).filter((x) => x.linked).map((x) => `${x.song.name} › ${x.pattern.name}`);
+        Library.remove(it);
+        return `Deleted “${it.name}” from the library.` + (u.length ? ` These keep their notes as their own version: ${u.join(', ')}.` : '');
+      }
+      throw new Error('action must be rename, duplicate, delete, own_version or relink.');
     });
   },
 

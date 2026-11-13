@@ -111,6 +111,7 @@ const UI = {
     this.initArrange();
     this.initMixer();
     this.initStyle();
+    this.initLibrary();
     this.initAdaptive();
     this.initInst();
     this.initKeyboard();
@@ -134,6 +135,7 @@ const UI = {
     this.renderScores();
     this.renderAddTrack();
     this.renderStyle();
+    this.renderLibrary();
     this.renderAdaptive();
     this.renderTracks();
     this.renderPatterns();
@@ -340,19 +342,68 @@ const UI = {
     };
     $('#btnDupPattern').onclick = () => {
       App.pushUndo();
-      const p = JSON.parse(JSON.stringify(App.pattern()));
-      p.id = uid(); p.name += ' copy';
-      App.song.patterns.splice(App.sel.pattern + 1, 0, p);
+      Library.duplicatePattern(App.pattern(), App.song, App.sel.pattern + 1);
       App.song.arrangement = App.song.arrangement.map((i) => (i > App.sel.pattern ? i + 1 : i));
       this.selectPattern(App.sel.pattern + 1); App.changed();
     };
     $('#btnDelPattern').onclick = () => this.deletePattern(App.sel.pattern);
+    $('#btnPlace').onclick = () => {
+      const it = Library.find($('#placeSel').value);
+      if (!it) return;
+      App.pushUndo();
+      Library.place(it, App.song);
+      App.changed();
+      this.selectPattern(App.song.patterns.length - 1);
+      const d = Library.offset(App.song, it);
+      toast(`Placed “${it.name}” — linked, so edits change it everywhere it's used${d ? ` (shifted ${d > 0 ? '+' : ''}${d} to ${NOTE_NAMES[App.song.key]})` : ''}`, 3500);
+    };
+    // "Make a version for this level" / "Back to the library version", above the Beat grid and Piano Roll.
+    $('#workspace').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-libact]');
+      if (!b) return;
+      const p = App.pattern(), name = (Library.find(p.lib || p.from) || {}).name;
+      App.pushUndo();
+      if (b.dataset.libact === 'own') { Library.ownVersion(p); App.changed(); toast(`This is now ${App.song.name}’s own version of “${name}”. Edits stay in this level.`, 3500); }
+      else { Library.relink(p); App.changed(); undoToast(`Back to the library’s “${name}”`); }
+      Roll.sel.clear();
+      this.renderPatterns(); this.renderBeat(); this.renderRollBar(); this.renderLibrary(); Roll.draw();
+    });
   },
+  /* The library link of the selected pattern, shown above the Beat grid and Piano Roll. */
+  renderLibBar() {
+    const p = App.pattern(), s = App.song;
+    let html = '';
+    if (p && p.lib && Library.of(p)) {
+      const it = Library.of(p), also = Library.alsoIn(p, s);
+      html = `<span class="scope style">From the library</span><b>${esc(it.name)}</b>
+        <span class="muted">${also.length ? `also plays in ${esc(also.join(', '))} — edits here change it there too` : 'only used in this level so far'}</span>
+        ${it.scale !== s.scale ? `<span class="muted" title="Notes are moved to this level's key by whole semitones, not refitted to its scale">· written in ${SCALES[it.scale].name.toLowerCase()}</span>` : ''}
+        <button data-libact="own" title="Split this pattern off so edits stay in ${esc(s.name)}">Make a version for this level</button>`;
+    } else if (p && p.from && Library.find(p.from)) {
+      html = `<span class="scope level">This level’s own version</span><b>${esc(Library.find(p.from).name)}</b>
+        <span class="muted">Edits stay in ${esc(s.name)}.</span>
+        <button data-libact="relink" title="Drop this level's changes and use the library's version again">Back to the library version</button>`;
+    }
+    $$('.lib-bar').forEach((el) => { el.innerHTML = html; el.hidden = !html; });
+  },
+  /* Library patterns that could go into this level. */
+  renderPlace() {
+    const s = App.song;
+    const avail = Library.patterns().filter((it) => !Library.placedIn(it, s));
+    const group = (kind, label) => {
+      const xs = avail.filter((it) => it.kind === kind);
+      return xs.length ? `<optgroup label="${label}">${xs.map((it) => `<option value="${it.id}">${kind === 'sting' ? '⚡ ' : ''}${esc(it.name)} · ${it.bars} bar${it.bars > 1 ? 's' : ''}</option>`).join('')}</optgroup>` : '';
+    };
+    $('#placeSel').innerHTML = group('segment', 'Segments') + group('sting', 'Stings');
+    $('#placeRow').hidden = !avail.length;
+  },
+  /* Called after an edit changed linked copies in other levels. */
+  afterSync() { if (this.view === 'library') this.renderLibrary(); },
   /* Delete pattern k, drop it from the song, and keep the selection on a sensible neighbour. */
   deletePattern(k) {
     const s = App.song;
     if (s.patterns.length <= 1) return toast('A level needs at least one pattern');
-    const name = s.patterns[k].name;
+    const name = s.patterns[k].name, item = Library.find(s.patterns[k].lib || s.patterns[k].from);
     const uses = s.arrangement.filter((i) => i === k).length;
     App.pushUndo();
     s.patterns.splice(k, 1);
@@ -360,7 +411,7 @@ const UI = {
     if (App.sel.pattern > k) App.sel.pattern--;
     App.sel.pattern = Math.min(App.sel.pattern, s.patterns.length - 1);
     this.renderAll(); App.changed();
-    undoToast(`Deleted pattern "${name}"` + (uses ? ` (and ${uses} block${uses > 1 ? 's' : ''} from the song)` : ''));
+    undoToast(`Removed “${name}” from ${s.name}` + (uses ? ` (and ${uses} block${uses > 1 ? 's' : ''} from the playthrough)` : '') + (item ? `. “${item.name}” is still in the Library.` : ''));
   },
   /* Inline rename. Elements are looked up fresh because clicks re-render the lists. */
   renamePattern(i, where, k) {
@@ -404,7 +455,7 @@ const UI = {
     Roll.sel.clear();
     $$('.pattern-item').forEach((e) => e.classList.toggle('sel', +e.dataset.i === i));
     $$('.barsSel').forEach((s) => (s.value = App.pattern().bars));
-    this.renderBeat(); this.renderRollBar(); Roll.draw();
+    this.renderBeat(); this.renderRollBar(); this.renderLibBar(); Roll.draw();
   },
   selectPattern(i) {
     App.sel.pattern = i;
@@ -493,13 +544,23 @@ const UI = {
         <button class="x" data-act="del" title="Delete track">✕</button>
       </div>`).join('');
   },
+  libMark(p) {
+    if (p.lib && Library.of(p)) {
+      const also = Library.alsoIn(p, App.song);
+      return `<span class="lib-tag" title="From the library: ${esc(Library.of(p).name)}${also.length ? ' · also in ' + esc(also.join(', ')) : ''}">⇄</span>`;
+    }
+    if (p.from && Library.find(p.from)) return `<span class="lib-tag own" title="${esc(App.song.name)}’s own version of ${esc(Library.find(p.from).name)}">⇄</span>`;
+    return '';
+  },
   renderPatterns() {
     $('#patternList').innerHTML = App.song.patterns.map((p, i) => `
       <div class="pattern-item ${i === App.sel.pattern ? 'sel' : ''}" data-i="${i}" title="Double-click name to rename">
         <span class="letter" style="border-left:3px solid ${patColor(i)}">${patLetter(i)}</span>
-        <span class="name">${esc(p.name)}</span>${p.kind === 'sting' ? '<span class="sting-tag" title="Sting — plays once, for transitions">⚡</span>' : ''}<button class="edit" data-act="rename" title="Rename pattern">✎</button><span class="bars">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
-        ${App.song.patterns.length > 1 ? '<button class="x" data-act="del" title="Delete pattern">✕</button>' : ''}
+        <span class="name">${esc(p.name)}</span>${p.kind === 'sting' ? '<span class="sting-tag" title="Sting — plays once, for transitions">⚡</span>' : ''}${this.libMark(p)}<button class="edit" data-act="rename" title="Rename pattern">✎</button><span class="bars">${p.bars} bar${p.bars > 1 ? 's' : ''}</span>
+        ${App.song.patterns.length > 1 ? '<button class="x" data-act="del" title="Remove from this level (it stays in the library)">✕</button>' : ''}
       </div>`).join('');
+    this.renderPlace();
+    this.renderLibBar();
     $$('.barsSel').forEach((s) => (s.value = App.pattern().bars));
     $('#btnDelPattern').hidden = App.song.patterns.length <= 1;
   },
@@ -1035,6 +1096,85 @@ const UI = {
     });
   },
 
+  /* ---------- Library tab: every segment, sting and melody in the game ---------- */
+  libFilter: 'all',
+  initLibrary() {
+    const lp = $('#libraryPanel');
+    lp.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.filter) { this.libFilter = b.dataset.filter; return this.renderLibrary(); }
+      const row = b.closest('.lib-row');
+      const it = row && Library.find(row.dataset.id);
+      if (!it) return;
+      const act = b.dataset.act;
+      if (act === 'play') return Themes.preview(it);
+      if (act === 'rename') return this.renameLibItem(row, it);
+      App.pushUndo();
+      if (act === 'place') {
+        Library.place(it, App.song);
+        App.changed();
+        this.selectPattern(App.song.patterns.length - 1);
+        this.renderLibrary();
+        return toast(`Placed “${it.name}” in ${App.song.name}, linked`, 2500);
+      }
+      if (act === 'dup') { const c = Library.duplicateItem(it); App.changed(); this.renderLibrary(); return toast(`Made “${c.name}” — not in any level yet`); }
+      if (act === 'del') {
+        const kept = it.kind === 'melody' ? 0 : Library.uses(it).filter((u) => u.linked).length;
+        Library.remove(it);
+        App.changed(); this.renderAll();
+        return undoToast(`Deleted “${it.name}” from the library` + (kept ? ` — ${kept} level${kept > 1 ? 's' : ''} keep${kept > 1 ? '' : 's'} its notes as their own version` : ''));
+      }
+    });
+    lp.addEventListener('dblclick', (e) => {
+      const row = e.target.closest('.lib-row');
+      if (row && e.target.closest('.name')) this.renameLibItem(row, Library.find(row.dataset.id));
+    });
+  },
+  renameLibItem(row, it) {
+    inlineRename($('.name', row), it.name, (v) => {
+      if (v && v !== it.name) { App.pushUndo(); it.name = Library.uniqueName(v, it); App.changed(); }
+      this.renderLibrary(); this.renderPatterns(); Roll.renderThemeBar();
+    });
+  },
+  renderLibrary() {
+    const lp = $('#libraryPanel');
+    if (!lp) return;
+    const s = App.song, f = this.libFilter;
+    const KIND = { segment: 'Segment', sting: '⚡ Sting', melody: '♪ Melody' };
+    const items = Library.items().filter((it) => f === 'all' || it.kind === f);
+    const count = (k) => Library.items().filter((it) => k === 'all' || it.kind === k).length;
+    const chips = [['all', 'All'], ['segment', 'Segments'], ['sting', 'Stings'], ['melody', 'Melodies (themes)']]
+      .map(([k, l]) => `<button class="chip-btn ${f === k ? 'on' : ''}" data-filter="${k}">${l} <span class="muted">${count(k)}</span></button>`).join('');
+    const row = (it) => {
+      const key = `${NOTE_NAMES[it.key]} ${SCALES[it.scale].name.toLowerCase()}`;
+      let used, acts;
+      if (it.kind === 'melody') {
+        const n = Themes.usage(it.id);
+        used = n ? `used ${n} time${n > 1 ? 's' : ''}` : 'not used yet — insert it from the Piano Roll';
+        acts = `<button data-act="play" title="Hear it">▶</button>`;
+      } else {
+        const u = Library.uses(it);
+        used = u.length ? u.map((x) => `${esc(x.song.name)} › ${esc(x.pattern.name)}${x.linked ? '' : ' <span class="own-note">(own version)</span>'}`).join(' · ') : 'not placed in any level';
+        acts = Library.placedIn(it, s) ? `<span class="muted in-level">in this level</span>` : `<button data-act="place" title="Use it in ${esc(s.name)}, linked">Place in this level</button>`;
+      }
+      return `<div class="lib-row" data-id="${it.id}">
+        <span class="kind kind-${it.kind}">${KIND[it.kind]}</span>
+        <span class="name" title="Double-click to rename">${esc(it.name)}</span><button class="edit" data-act="rename" title="Rename">✎</button>
+        <span class="snd">${it.bars} bar${it.bars > 1 ? 's' : ''} · ${key}</span>
+        <span class="muted use">${used}</span>
+        <span class="acts">${acts}<button data-act="dup" title="Copy as a new library item">Duplicate</button></span>
+        <button class="x" data-act="del" title="${it.kind === 'melody' ? 'Delete melody (notes already in levels stay)' : 'Delete from the library (levels that use it keep their notes as their own version)'}">✕</button>
+      </div>`;
+    };
+    lp.innerHTML = `<section class="style-sec lib-sec">
+      <h4 class="subhead">Library</h4>
+      <p class="muted">Every segment, sting and melody in the game. Levels place patterns <b>linked</b>: edit one in any level and it changes everywhere it's linked, moved into each level's key. “Make a version for this level” (above the Beat grid and Piano Roll) splits one off. Melodies are the game's themes: insert them from the Piano Roll.</p>
+      <div class="lib-filters">${chips}</div>
+      <div class="role-list">${items.map(row).join('') || '<p class="muted">Nothing here yet.</p>'}</div>
+    </section>`;
+  },
+
   /* ---------- Game Style tab ---------- */
   initStyle() {
     const sp = $('#stylePanel');
@@ -1056,19 +1196,7 @@ const UI = {
         this.renderStyle(); App.changed();
         return toast(`Saved flavor “${f.name}”: ${Flavors.summary(f)}`, 3500);
       }
-      const thRow = e.target.closest('.theme-row');
-      if (thRow) {
-        const th = Themes.find(thRow.dataset.tid);
-        if (act === 'playTheme') Themes.preview(th);
-        else if (act === 'renameTheme') this.renameItem(thRow, th, () => Roll.renderThemeBar());
-        else if (act === 'delTheme') {
-          App.pushUndo();
-          App.project.themes = App.project.themes.filter((x) => x !== th);
-          this.renderStyle(); Roll.renderThemeBar(); App.changed();
-          undoToast(`Deleted theme “${th.name}” (notes already in levels stay)`);
-        }
-        return;
-      }
+      if (act === 'openLibrary') { UI.libFilter = 'melody'; this.showView('library'); return; }
       const fRow = e.target.closest('.flavor-row');
       if (fRow) {
         const f = App.project.flavors.find((x) => x.id === fRow.dataset.fid);
@@ -1155,17 +1283,8 @@ const UI = {
       </section>
       <section class="style-sec">
         <h4 class="subhead">Themes</h4>
-        <p class="muted">The game's recurring melodies and progressions. Save one from the Piano Roll (“Save as theme”), then insert it into any level — it's moved into that level's key, and can be slowed down, sped up or shifted an octave.</p>
-        <div class="role-list">${App.project.themes.map((th) => {
-          const n = Themes.usage(th.id);
-          return `<div class="theme-row" data-tid="${th.id}">
-            <button class="play-mini" data-act="playTheme" title="Hear it">▶</button>
-            <span class="name">${esc(th.name)}</span><button class="edit" data-act="renameTheme" title="Rename theme">✎</button>
-            <span class="snd">${NOTE_NAMES[th.key]} ${esc(SCALES[th.scale].name.toLowerCase())} · ${th.bars} bar${th.bars > 1 ? 's' : ''} · ${th.notes.length} notes</span>
-            <span class="muted use">${n ? `used ${n} time${n > 1 ? 's' : ''}` : 'not used yet'}</span>
-            <button class="x" data-act="delTheme" title="Delete theme (notes already in levels stay)">✕</button>
-          </div>`;
-        }).join('') || '<p class="muted">No themes yet.</p>'}</div>
+        <p class="muted">The game's recurring melodies (${Library.melodies().length}) are in the <b>Library</b> tab now, with its segments and stings. Save one from the Piano Roll (“Save as theme”), then insert it into any level there.</p>
+        <button data-act="openLibrary">Open the Library</button>
       </section>
       <section class="style-sec">
         <h4 class="subhead">Flavors</h4>
@@ -1419,6 +1538,7 @@ const UI = {
         this.renderTracks(); this.renderStyle(); this.renderInst(); this.renderKeyboard();
       }
       if (this.view === 'style') this.renderStyle();
+      if (this.view === 'library') this.renderLibrary();
       if (this.view === 'roll') Roll.scrollToNotes();
     }));
   },

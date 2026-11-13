@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Synth Studio</title>
 <!-- Build number: stamped by tools/pre-commit into this tag, every ?v= below, and version.txt. -->
-<meta name="build" content="20261113004313">
+<meta name="build" content="20261113005611">
 <script>
 /* Stale-page check. Browsers may keep this page cached for a few minutes after an update.
    version.txt is always fetched fresh; if it names a newer build than this page, reload once
@@ -21,7 +21,7 @@
   }).catch(function () { /* opened as a file, or offline: nothing to check */ });
 })();
 </script>
-<link rel="stylesheet" href="styles.css?v=20261113004313">
+<link rel="stylesheet" href="styles.css?v=20261113005611">
 </head>
 <body>
 <header id="topbar">
@@ -77,9 +77,13 @@
       <h3>Patterns</h3>
       <div id="patternList"></div>
       <div class="row gap">
-        <button id="btnAddPattern">+ New</button>
-        <button id="btnDupPattern">Duplicate</button>
-        <button id="btnDelPattern" class="danger">Delete</button>
+        <button id="btnAddPattern" title="New pattern in this level (it also goes into the game library)">+ New</button>
+        <button id="btnDupPattern" title="Copy this pattern as a new, separate library item">Duplicate</button>
+        <button id="btnDelPattern" class="danger" title="Remove from this level (it stays in the library)">Remove</button>
+      </div>
+      <div class="row gap" id="placeRow">
+        <select id="placeSel" title="A pattern from the game library to use in this level"></select>
+        <button id="btnPlace" title="Use this library pattern in this level, linked">Place</button>
       </div>
     </section>
   </aside>
@@ -90,10 +94,12 @@
       <button data-view="roll">Piano Roll</button>
       <button data-view="adaptive">Adaptive</button>
       <button data-view="mixer">Mixer &amp; FX</button>
+      <button data-view="library">Library</button>
       <button data-view="style">Game Style</button>
     </nav>
 
     <div class="view on" id="view-beat">
+      <div class="toolbar sub lib-bar" hidden></div>
       <div class="toolbar">
         <label>Drum track <select id="beatTrack"></select></label>
         <label>Kit <select id="beatKit"></select></label>
@@ -109,6 +115,7 @@
     </div>
 
     <div class="view" id="view-roll">
+      <div class="toolbar sub lib-bar" hidden></div>
       <div class="toolbar">
         <label>Track <select id="rollTrack"></select></label>
         <label>Snap <select id="rollSnap">
@@ -168,6 +175,10 @@
 
     <div class="view" id="view-mixer">
       <div id="mixer" class="mixer"></div>
+    </div>
+
+    <div class="view" id="view-library">
+      <div id="libraryPanel" class="style-panel"></div>
     </div>
 
     <div class="view" id="view-style">
@@ -248,17 +259,18 @@
 <input type="file" id="fileOpen" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
 <input type="file" id="fileSample" accept="audio/*" hidden>
 
-<script src="js/presets.js?v=20261113004313"></script>
-<script src="js/audio.js?v=20261113004313"></script>
-<script src="js/export.js?v=20261113004313"></script>
-<script src="js/unity.js?v=20261113004313"></script>
-<script src="js/app.js?v=20261113004313"></script>
-<script src="js/themes.js?v=20261113004313"></script>
-<script src="js/ui.js?v=20261113004313"></script>
-<script src="js/roll.js?v=20261113004313"></script>
-<script src="js/bridge.js?v=20261113004313"></script>
-<script src="js/bridge-edit.js?v=20261113004313"></script>
-<script src="js/bridge-production.js?v=20261113004313"></script>
+<script src="js/presets.js?v=20261113005611"></script>
+<script src="js/audio.js?v=20261113005611"></script>
+<script src="js/export.js?v=20261113005611"></script>
+<script src="js/unity.js?v=20261113005611"></script>
+<script src="js/app.js?v=20261113005611"></script>
+<script src="js/library.js?v=20261113005611"></script>
+<script src="js/themes.js?v=20261113005611"></script>
+<script src="js/ui.js?v=20261113005611"></script>
+<script src="js/roll.js?v=20261113005611"></script>
+<script src="js/bridge.js?v=20261113005611"></script>
+<script src="js/bridge-edit.js?v=20261113005611"></script>
+<script src="js/bridge-production.js?v=20261113005611"></script>
 <script>
 /* Safety net: if the app can't start (e.g. a half-updated page), say so and offer a clean reload
    instead of leaving a broken screen. */

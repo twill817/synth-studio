@@ -161,7 +161,13 @@ const BridgeAPI = {
         }),
         masterMix: st.mix,
       },
-      themes: p.themes.map((t) => ({ name: t.name, key: `${NOTE_NAMES[t.key]} ${SCALES[t.scale].name}`, bars: t.bars, notes: t.notes.length, uses: Themes.usage(t.id) })),
+      library: {
+        about: 'Every segment, sting and melody in the game. Levels place patterns linked (editing one changes it in every level that links it) or keep their own version. Melodies are the game’s themes (insert_theme).',
+        items: p.library.map((x) => x.kind === 'melody'
+          ? { name: x.name, type: 'melody (theme)', key: `${NOTE_NAMES[x.key]} ${SCALES[x.scale].name}`, bars: x.bars, notes: x.notes.length, uses: Themes.usage(x.id) }
+          : { name: x.name, type: x.kind, bars: x.bars, writtenIn: `${NOTE_NAMES[x.key]} ${SCALES[x.scale].name}`,
+              usedIn: Library.uses(x).map((u) => `${u.song.name} › ${u.pattern.name}${u.linked ? '' : ' (own version)'}`) }),
+      },
       flavors: p.flavors.map((f) => ({ name: f.name, changes: Flavors.summary(f) })),
       scores: p.scores.map((s, i) => ({
         number: i + 1,
@@ -189,6 +195,8 @@ const BridgeAPI = {
       intensityLayers: s.layers.map((l, i) => ({ name: l.name, level: i === 0 ? 'always on' : i, tracks: s.tracks.filter((t) => t.layer === l.id).map((t) => t.name) })),
       patterns: s.patterns.map((p, i) => ({
         letter: String.fromCharCode(65 + i), name: p.name, type: p.kind === 'sting' ? 'sting (plays once)' : 'segment (loops)', bars: p.bars,
+        library: p.lib ? `linked to “${(Library.of(p) || {}).name}”${Library.alsoIn(p, s).length ? ` — also plays in ${Library.alsoIn(p, s).join(', ')}, so edits change it there too` : ''}`
+          : p.from && Library.find(p.from) ? `this level's own version of “${Library.find(p.from).name}”` : 'this level’s own pattern (not linked)',
         entrySting: p.entrySting ? (s.patterns.find((q) => q.id === p.entrySting) || {}).name || null : null,
         notesPerTrack: Object.fromEntries(s.tracks.filter((t) => t.type === 'synth' && (p.notes[t.id] || []).length).map((t) => [t.name, p.notes[t.id].length])),
         drumHits: Object.fromEntries(s.tracks.filter((t) => t.type === 'drum').map((t) => [t.name, Object.values(p.drums[t.id] || {}).reduce((a, r) => a + r.filter((v) => v > 0).length, 0)])),

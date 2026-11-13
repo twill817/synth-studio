@@ -1,6 +1,6 @@
 /* Themes and flavors — the game's shared musical identity.
 
-   theme  = { id, name, key, scale, bars, notes[{s,l,p,v}], role }   (project.themes)
+   theme  = { id, name, kind:'melody', key, scale, bars, notes[{s,l,p,v}], role }   (a library melody)
             A recurring melody / progression / riff, stored in its own key.
    origin = pattern.origins[trackId] = { theme, oct, speed, fit }
             Remembers which theme (and how) a track's notes in a pattern came from,
@@ -41,7 +41,7 @@ const Themes = {
     return out;
   },
 
-  find(id) { return App.project.themes.find((t) => t.id === id); },
+  find(id) { return Library.melodies().find((t) => t.id === id); },
   usage(id) {
     let n = 0;
     App.project.scores.forEach((s) => s.patterns.forEach((p) => Object.values(p.origins || {}).forEach((o) => { if (o.theme === id) n++; })));
@@ -64,9 +64,9 @@ const Themes = {
     const minS = Math.min(...notes.map((n) => n.s));
     const off = Math.floor(minS / 16) * 16;
     const end = Math.max(...notes.map((n) => n.s + n.l)) - off;
-    const theme = { id: uid(), name, key: song.key, scale: song.scale, bars: Math.max(1, Math.ceil(end / 16)),
+    const theme = { id: uid(), name: Library.uniqueName(name), kind: 'melody', key: song.key, scale: song.scale, bars: Math.max(1, Math.ceil(end / 16)),
       notes: notes.map((n) => ({ s: n.s - off, l: n.l, p: n.p, v: n.v })).sort((a, b) => a.s - b.s || a.p - b.p), role: track.role };
-    App.project.themes.push(theme);
+    Library.items().push(theme);
     return theme;
   },
 

@@ -2,7 +2,7 @@
 
    Project model
    -------------
-   project = { name, style, scores[], current }
+   project = { name, style, scores[], current, library[], flavors[] }   (library: js/library.js)
    style   = { key, scale, bpm,           // defaults for new scores
                roles[],                   // the game's instrument roster, shared by every score
                mix }                      // master chain, shared by every score
@@ -12,11 +12,13 @@
                adaptive: { quant } }      // when a segment change happens: 'beat' | 'bar' | 'end'
    track   = { id, name, role, type, color, vol, pan, mute, solo, drive, tone, rev, dly,
                layer,                     // id of the intensity layer this track belongs to
-               sound }                    // null = use the role's sound; otherwise a per-score override
+               sound,                     // null = use the role's sound; otherwise a per-level override
                                           // ({preset, synth} or {kit, voices}) — the level's "flavor"
+               part }                     // which part of a library pattern it plays (role id, role:2 …)
    pattern = { id, name, bars, drums, notes,
                kind,                      // 'loop' = a segment the game can sit in; 'sting' = plays once
-               entrySting }               // id of a sting to play when the game switches to this segment
+               entrySting,                // id of a sting to play when the game switches to this segment
+               lib, from, libSig }        // library link: see js/library.js
 */
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -132,7 +134,7 @@ function blankProject() {
   score.patterns.push(makePattern('Main', 2));
   score.arrangement = [0];
   ensureAll(score);
-  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [score], current: 0 };
+  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [score], current: 0, library: [] };
 }
 function demoProject() {
   const style = baseStyle(9, 'minor', 96);
@@ -268,7 +270,6 @@ const App = {
   },
   migrate(p) {
     p.style.mix = Object.assign({ ...DEFAULT_MIX }, p.style.mix || {});
-    p.themes = p.themes || [];
     p.flavors = p.flavors || [];
     p.style.roles.forEach((r) => { if (r.type === 'synth') r.synth = Object.assign({}, SYNTH_PRESETS[r.preset] || SYNTH_PRESETS.piano, r.synth); });
     p.current = clamp(p.current || 0, 0, p.scores.length - 1);
@@ -287,6 +288,7 @@ const App = {
       s.tracks.forEach((t) => { if (t.sound && t.sound.synth) t.sound.synth = Object.assign({}, SYNTH_PRESETS[t.sound.preset] || SYNTH_PRESETS.piano, t.sound.synth); });
       ensureAll(s);
     });
+    Library.migrate(p);
   },
   resetSelection() {
     this.sel.track = (this.song.tracks.find((t) => t.type === 'synth') || this.song.tracks[0] || {}).id;
@@ -345,11 +347,16 @@ const App = {
 
   /* --- persistence --- */
   _saveTimer: null,
+  /* After every edit: bring linked library patterns in line (see Library.sync), then autosave.
+     Returns the linked copies that changed in other levels. */
   changed() {
+    const rewrote = Library.sync();
+    if (rewrote.length && typeof UI !== 'undefined' && UI.afterSync) UI.afterSync(rewrote);
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => {
       try { localStorage.setItem('synthstudio.project', JSON.stringify(this.project)); } catch (e) { console.warn('Autosave failed', e); }
     }, 400);
+    return rewrote;
   },
   usedSampleIds() {
     const used = new Set();

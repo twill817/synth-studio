@@ -47,10 +47,12 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | `write_drums` | Drum lines (`X...x...`) and/or a preset beat |
 | `generate_part` | Chords, bass, arps or a riff that follow the key and a progression |
 | `transform_notes` | Transpose, octave, quantize, velocity |
-| `insert_theme` / `save_theme` / `reapply_theme` | Use the game's themes in any level (fitted to its key), save new ones, refresh every linked use |
+| `insert_theme` / `save_theme` / `reapply_theme` | Use the game's themes (library melodies) in any level (fitted to its key), save new ones, refresh every linked use |
+| `place_pattern` | Reuse a library segment or sting in a level, linked (moved into the level's key) |
+| `library_item` | Rename / duplicate / delete a library item; split a level's pattern into its own version, or relink it |
 | **Structure** | |
 | `create_score` / `set_score` | New level (from the style, or a copy) / key, tempo, swing, when segment changes land |
-| `add_pattern` / `set_pattern` / `delete_pattern` | Segments and stings, length, entry stings |
+| `add_pattern` / `set_pattern` / `delete_pattern` | New segments and stings (each becomes a library item), length, entry stings; delete removes from the level only |
 | `set_arrangement` | Export playthrough (pattern order for plain audio/MIDI export) |
 | `set_layers` | Intensity layers and which tracks are on each |
 | `add_track` / `set_track` / `remove_track` | Tracks, mixer settings, mute/solo, layer |

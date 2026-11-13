@@ -181,9 +181,10 @@ const server = new McpServer(
   { name: 'synth-studio', version: '0.1.0' },
   { instructions:
       'Synth Studio is a browser music workstation for making a game\'s adaptive soundtrack (Unity game "DeadDerby"). ' +
-      'A project is the whole game: a Game Style (instrument roles, themes, flavors, master mix) shared by scores (one per level). ' +
-      'Each score has tracks (each plays a role, optionally customized for that level), patterns (segments that loop, or one-shot stings), ' +
-      'and intensity layers. Positions use bar.beat.sixteenth (1-based); durations like 1/4, 1/8, 3/16, 1 bar. ' +
+      'A project is the whole game: a Game Style (instrument roles, flavors, master mix) and a Library (every segment, sting and melody/theme), shared by scores (one per level). ' +
+      'Each score has tracks (each plays a role, optionally customized for that level), patterns placed from the library (segments that loop, or one-shot stings), ' +
+      'and intensity layers. Placed patterns are linked: editing one changes it in every level that links it (tools report where); ' +
+      'use library_item own_version for a level-only change, and place_pattern to reuse a pattern in another level instead of rewriting it. Positions use bar.beat.sixteenth (1-based); durations like 1/4, 1/8, 3/16, 1 bar. ' +
       'Start with get_project to see what exists. Every edit is one Undo step in the app, all-or-nothing, and the app opens what changed. ' +
       'Keep the game consistent: give a level its own colour with scope "level" (custom sounds, level mix, flavors); change the game style only for ' +
       'game-wide decisions, and read the impact the tool reports. Reuse themes across levels (insert_theme) and keep a shared progression within a pattern. ' +
@@ -283,6 +284,12 @@ edit('set_pattern', 'Change a pattern', 'Rename a pattern, change its length (1/
   { score: scoreRef, pattern: patternRef, name: z.string().optional(), bars: z.number().int().optional(), kind: z.enum(['segment', 'sting']).optional(), entry_sting: z.string().optional() }, 'setPattern');
 
 edit('delete_pattern', 'Delete a pattern', 'Delete a pattern (and its blocks in the export playthrough).', { score: scoreRef, pattern: patternRef }, 'deletePattern');
+
+edit('place_pattern', 'Place a library pattern in a level', 'Put a segment or sting from the game library into a level, linked: editing it in any level changes it everywhere it is linked. Pitched parts shift to the level’s key; drums don’t. Each track plays the part for its instrument role. Optional name (the level’s name for it, also its Unity cue name) and entry_sting.',
+  { score: scoreRef, item: z.string(), name: z.string().optional(), entry_sting: z.string().optional() }, 'placePattern');
+
+edit('library_item', 'Manage a library item', 'rename / duplicate / delete a library item (give item; deleting keeps each level’s notes as its own version). For one level’s pattern (give score and pattern): own_version splits it off so edits stay in that level; relink drops the level’s version and uses the library’s again.',
+  { action: z.enum(['rename', 'duplicate', 'delete', 'own_version', 'relink']), item: z.string().optional(), score: scoreRef, pattern: z.string().optional(), name: z.string().optional() }, 'libraryItem');
 
 edit('set_arrangement', 'Set the export playthrough', 'Set a level\'s playthrough: a fixed pattern order used only for plain audio/MIDI export (Export › A playthrough), e.g. for a trailer or soundtrack file. The game itself never plays it — in-game music is segments, stings and intensity. Give a list of pattern names.',
   { score: scoreRef, patterns: z.array(z.string()).min(1) }, 'setArrangement');
