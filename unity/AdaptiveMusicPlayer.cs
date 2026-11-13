@@ -8,8 +8,10 @@
 // From game code:
 //   music.GoToSegment("Action");   // switches on the next beat / bar / segment end (as set in Synth Studio)
 //   music.SetIntensity(0.75f);     // 0 = base layer only … 1 = every layer
-//   music.PlaySting("Alert");      // one-shot, then back to the current segment
+//   music.PlaySting("Alert");      // plays the way Synth Studio sets it: instead (the segment restarts
+//                                  // after it), over the music, then a segment, or as the ending
 //   music.Stop(2f);                // fade out over 2 seconds
+// Or name what happened and let the exported cues decide: add MusicCues and call cues.Trigger("RunStarted").
 //
 // Timing is sample-accurate: everything is scheduled on the audio clock (AudioSettings.dspTime).
 
@@ -40,6 +42,20 @@ namespace SynthStudio
         public int musicalLengthSamples; // where the next segment starts
         public int lengthSamples;        // including the ringing tail
         public string file;
+        // How PlaySting plays it (manifest version 2; older files leave these empty = "instead").
+        public string play;              // "instead" | "over" | "goto" | "end"
+        public string then;              // segment to go to after it ("goto")
+        public string at;                // "" = the manifest's quantize | "now" | "beat" | "bar"
+        public float duck;               // "over": how loud the loop plays under it (0–1)
+    }
+
+    /// <summary>One exported cue: what the music does when the game fires an event (see MusicCues).</summary>
+    [Serializable] public class MusicCue
+    {
+        public string name;              // the event, e.g. RunStarted
+        public string action;            // a MusicCues.CueAction name, e.g. GoToSegment
+        public string target;
+        public float value;
     }
 
     [Serializable] public class MusicManifest
@@ -56,6 +72,7 @@ namespace SynthStudio
         public MusicLayer[] layers;
         public MusicSegment[] segments;
         public MusicSting[] stings;
+        public MusicCue[] cues;          // version 2: event → player calls
     }
 
     public class AdaptiveMusicPlayer : MonoBehaviour
@@ -82,6 +99,8 @@ namespace SynthStudio
         /// <summary>Segment and sting names in the manifest (works in the editor before Play, too).</summary>
         public string[] SegmentNames() { var mm = ReadManifest(); return mm == null ? new string[0] : Array.ConvertAll(mm.segments, s => s.name); }
         public string[] StingNames() { var mm = ReadManifest(); return mm == null || mm.stings == null ? new string[0] : Array.ConvertAll(mm.stings, s => s.name); }
+        /// <summary>The cues exported with the music (what each game event does in this level).</summary>
+        public MusicCue[] ManifestCues() { var mm = ReadManifest(); return mm == null || mm.cues == null ? new MusicCue[0] : mm.cues; }
         // In Play mode use the manifest read in Awake; in the editor always read the asset, so a
         // re-export or a script reload never leaves a stale copy behind.
         MusicManifest ReadManifest() => Application.isPlaying && m != null ? m
@@ -97,10 +116,13 @@ namespace SynthStudio
         float[] layerLevel;
         float master = 1f;
         float duck = 1f, duckTarget = 1f, duckSeconds = 0.3f;
+        // A sting playing over the music turns only the loop down, between overStart and overEnd (dspTime).
+        double overStart, overEnd;
+        float overLevel = 1f, overGain = 1f;
 
         [NonSerialized] MusicSegment current;
         double segmentStart;            // dspTime the current segment's loop started (may be in the future)
-        string queuedSegment, queuedSting;
+        string queuedSegment, queuedSting, queuedAt;
         bool queuedHasRequest;
         Coroutine fade;
 
@@ -163,8 +185,26 @@ namespace SynthStudio
         /// <summary>Move to another segment at the next quantize point, through its entry sting if it has one.</summary>
         public void GoToSegment(string segment) => Request(segment, null);
 
-        /// <summary>Play a sting at the next quantize point, then restart the current segment.</summary>
-        public void PlaySting(string sting) { if (current != null) Request(current.name, sting); }
+        /// <summary>Play a sting the way Synth Studio sets it (the sting's "When fired"):
+        /// instead (default) — the loop stops at the next change point, the sting plays, the segment restarts;
+        /// over — the loop keeps going, turned down while the sting plays;
+        /// goto — the sting plays, then its "then" segment starts;
+        /// end — like EndWithSting. The sting's "Starts" setting overrides when.</summary>
+        public void PlaySting(string sting)
+        {
+            if (m == null) return;
+            var st = FindSting(sting);
+            if (st == null) return;
+            switch (st.play)
+            {
+                case "end": EndWithSting(sting); return;
+                case "over": if (current != null) PlayOver(st); return;
+                case "goto":
+                    if (current != null) Request(!string.IsNullOrEmpty(st.then) && HasSegment(st.then) ? st.then : current.name, sting, st.at);
+                    return;
+                default: if (current != null) Request(current.name, sting, st.at); return;
+            }
+        }
 
         public void SetIntensity(float value) => intensity = Mathf.Clamp01(value);
 
@@ -210,7 +250,7 @@ namespace SynthStudio
 
         // ---------------------------------------------------------------- scheduling
 
-        void Request(string segment, string stingOverride)
+        void Request(string segment, string stingOverride, string at = null)
         {
             var seg = FindSegment(segment);
             if (seg == null) return;
@@ -218,14 +258,12 @@ namespace SynthStudio
             // A change is already scheduled but hasn't started yet: apply this one once it has.
             if (AudioSettings.dspTime < segmentStart)
             {
-                queuedSegment = segment; queuedSting = stingOverride; queuedHasRequest = true;
+                queuedSegment = segment; queuedSting = stingOverride; queuedAt = at; queuedHasRequest = true;
                 return;
             }
             if (stingOverride == null && seg == current) return;
 
-            double now = AudioSettings.dspTime + ScheduleLead;
-            double q = QuantizeSeconds();
-            double boundary = segmentStart + Math.Ceiling((now - segmentStart) / q) * q;
+            double boundary = NextChangePoint(at);
             double start = boundary;
 
             // The current segment stops at the boundary; a sting (if any) fills the gap before the new one.
@@ -242,10 +280,37 @@ namespace SynthStudio
             StartSegmentAt(seg, start, boundary);
         }
 
-        double QuantizeSeconds()
+        // The next change point after now, on the current segment's grid. at: "now", "beat", "bar",
+        // or null/"" for the manifest's rule.
+        double NextChangePoint(string at)
+        {
+            double now = AudioSettings.dspTime + ScheduleLead;
+            if (at == "now" || current == null) return now;
+            double q = QuantizeSeconds(at);
+            if (segmentStart > now) return segmentStart;
+            return segmentStart + Math.Ceiling((now - segmentStart) / q) * q;
+        }
+
+        // A sting over the music: it plays on its own source; only the loop is turned down meanwhile.
+        void PlayOver(MusicSting st)
+        {
+            double at = NextChangePoint(st.at);
+            var src = stingSources[nextSting]; nextSting = 1 - nextSting;
+            src.clip = Clip(st.file);
+            src.volume = volume * master * duck;
+            if (src.clip == null) return;
+            src.PlayScheduled(at);
+            overStart = at;
+            overEnd = at + Math.Max(st.musicalLengthSamples, 1) / (double)m.sampleRate;
+            overLevel = st.duck > 0f ? Mathf.Clamp01(st.duck) : 0.6f;
+        }
+
+        bool HasSegment(string name) { foreach (var s in m.segments) if (s.name == name) return true; return false; }
+
+        double QuantizeSeconds(string at = null)
         {
             double beat = 60.0 / m.bpm;
-            switch (m.quantize)
+            switch (string.IsNullOrEmpty(at) ? m.quantize : at)
             {
                 case "beat": return beat;
                 case "end": return current.lengthSamples / (double)m.sampleRate;
@@ -287,18 +352,20 @@ namespace SynthStudio
             // Unscaled time: fades keep working while the game is paused (timeScale 0) or in slow motion.
             duck = Mathf.MoveTowards(duck, duckTarget, Time.unscaledDeltaTime / duckSeconds);
             foreach (var s in stingSources) s.volume = volume * master * duck;
+            double dsp = AudioSettings.dspTime;
+            overGain = Mathf.MoveTowards(overGain, dsp >= overStart && dsp < overEnd ? overLevel : 1f, Time.unscaledDeltaTime / 0.15f);
             float step = layerFadeTime > 0f ? Time.unscaledDeltaTime / layerFadeTime : 1f;
             for (int i = 0; i < layerLevel.Length; i++)
             {
                 layerLevel[i] = Mathf.MoveTowards(layerLevel[i], TargetLevel(i), step);
-                float v = layerLevel[i] * volume * master * duck;
+                float v = layerLevel[i] * volume * master * duck * overGain;
                 banks[0][i].volume = v;
                 banks[1][i].volume = v;
             }
             if (queuedHasRequest && AudioSettings.dspTime >= segmentStart)
             {
                 queuedHasRequest = false;
-                Request(queuedSegment, queuedSting);
+                Request(queuedSegment, queuedSting, queuedAt);
             }
         }
 
@@ -371,6 +438,17 @@ namespace SynthStudio
             GUILayout.BeginArea(new Rect(10, 10, 240, Screen.height - 20), GUI.skin.box);
             GUILayout.Label(m.score + "  —  " + (current != null ? "playing " + current.name : "stopped"));
             GUILayout.Space(6);
+            var cueTable = GetComponent<MusicCues>();
+            if (cueTable != null)
+            {
+                var names = cueTable.EventNames();
+                if (names.Length > 0)
+                {
+                    GUILayout.Label("Game events");
+                    foreach (var n in names) if (GUILayout.Button(n)) cueTable.Trigger(n);
+                    GUILayout.Space(6);
+                }
+            }
             GUILayout.Label("Segments");
             foreach (var s in m.segments)
                 if (GUILayout.Button(s.name + (string.IsNullOrEmpty(s.entrySting) ? "" : "  (via " + s.entrySting + ")"))) GoToSegment(s.name);

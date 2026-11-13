@@ -1,15 +1,18 @@
-// MusicCues.cs — a no-code table of named music cues for AdaptiveMusicPlayer (Synth Studio).
+// MusicCues.cs — named music cues for AdaptiveMusicPlayer (Synth Studio).
 //
-// Fill the table in the Inspector, e.g.
+// The game fires an event by name (`cues.Trigger("RunStarted")`); what the music does is set in
+// Synth Studio (Simulate › Edit events…) and exported with the music (manifest "cues"). Rows in the
+// table below override the export for that event name — handy for tuning one level without
+// re-exporting. Table rows look like this:
 //   RunStarted   → Go To Segment   "Explore"
 //   EnemySpotted → Go To Segment   "Action"      (plays its entry sting first, if it has one)
 //   ClockLow     → Set Intensity   1
 //   Paused       → Duck            0.3
 //   Resumed      → Unduck
 //   RunOver      → End With Sting  "Finish"   (the loop stops at the next bar; the sting rings out)
-// then fire cues by name — from game code (`cues.Trigger("RunStarted")`), or with no code at all from
-// any UnityEvent in the Inspector (buttons, triggers, timelines): pick MusicCues → Trigger and type the name.
-// The game decides *when*; the table decides *what the music does*, so it can be tuned without code.
+// Fire cues by name — from game code, or with no code at all from any UnityEvent in the Inspector
+// (buttons, triggers, timelines): pick MusicCues → Trigger and type the name.
+// The game decides *when*; Synth Studio (or a table row) decides *what the music does*.
 
 using System;
 using System.Collections.Generic;
@@ -36,6 +39,7 @@ namespace SynthStudio
 
         [Tooltip("Defaults to the Adaptive Music Player on this GameObject")]
         public AdaptiveMusicPlayer player;
+        [Tooltip("Overrides: rows here replace what the exported music does for that event name. Leave empty to use Synth Studio's events.")]
         public List<Cue> cues = new List<Cue>();
         [Tooltip("Log each cue to the Console — handy while wiring things up")]
         public bool logCues;
@@ -43,29 +47,55 @@ namespace SynthStudio
         void Reset() { player = GetComponent<AdaptiveMusicPlayer>(); }
         void Awake() { if (player == null) player = GetComponent<AdaptiveMusicPlayer>(); }
 
-        /// <summary>Fire a cue by name. Unknown names log a warning instead of failing.</summary>
+        /// <summary>Fire an event by name. Table rows for that name win; otherwise the exported cues run.
+        /// Unknown names log a warning instead of failing.</summary>
         public void Trigger(string cueName)
         {
             if (player == null) { Debug.LogWarning("[MusicCues] No Adaptive Music Player assigned.", this); return; }
             bool found = false;
             foreach (var cue in cues)
             {
-                if (!string.Equals(cue.name, cueName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!Same(cue.name, cueName)) continue;
                 found = true;
-                if (logCues) Debug.Log($"[MusicCues] {cue.name}: {cue.action} {cue.target} {cue.value}", this);
-                switch (cue.action)
-                {
-                    case CueAction.GoToSegment: player.GoToSegment(cue.target); break;
-                    case CueAction.PlaySting: player.PlaySting(cue.target); break;
-                    case CueAction.SetIntensity: player.SetIntensity(cue.value); break;
-                    case CueAction.Play: player.Play(cue.target); break;
-                    case CueAction.Stop: player.Stop(cue.value > 0f ? cue.value : 1f); break;
-                    case CueAction.Duck: player.SetDucked(true, cue.value); break;
-                    case CueAction.Unduck: player.SetDucked(false); break;
-                    case CueAction.EndWithSting: player.EndWithSting(cue.target, cue.value > 0f ? cue.value : 1f); break;
-                }
+                Run(cue.name, cue.action, cue.target, cue.value, "table");
             }
-            if (!found) Debug.LogWarning($"[MusicCues] No cue named \"{cueName}\".", this);
+            if (found) return;
+            foreach (var mc in player.ManifestCues())
+            {
+                if (!Same(mc.name, cueName)) continue;
+                if (!Enum.TryParse(mc.action, out CueAction action)) { Debug.LogWarning($"[MusicCues] Unknown exported action \"{mc.action}\" for \"{mc.name}\".", this); continue; }
+                found = true;
+                Run(mc.name, action, mc.target, mc.value, "export");
+            }
+            if (!found) Debug.LogWarning($"[MusicCues] No cue named \"{cueName}\" (in the table or the exported music).", this);
+        }
+
+        /// <summary>Every event name this object knows: the table's and the exported music's.</summary>
+        public string[] EventNames()
+        {
+            var names = new List<string>();
+            void Add(string n) { if (!string.IsNullOrEmpty(n) && !names.Exists(x => Same(x, n))) names.Add(n); }
+            if (player != null) foreach (var mc in player.ManifestCues()) Add(mc.name);
+            foreach (var cue in cues) Add(cue.name);
+            return names.ToArray();
+        }
+
+        static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        void Run(string name, CueAction action, string target, float value, string source)
+        {
+            if (logCues) Debug.Log($"[MusicCues] {name}: {action} {target} {value} ({source})", this);
+            switch (action)
+            {
+                case CueAction.GoToSegment: player.GoToSegment(target); break;
+                case CueAction.PlaySting: player.PlaySting(target); break;
+                case CueAction.SetIntensity: player.SetIntensity(value); break;
+                case CueAction.Play: player.Play(target); break;
+                case CueAction.Stop: player.Stop(value > 0f ? value : 1f); break;
+                case CueAction.Duck: player.SetDucked(true, value); break;
+                case CueAction.Unduck: player.SetDucked(false); break;
+                case CueAction.EndWithSting: player.EndWithSting(target, value > 0f ? value : 1f); break;
+            }
         }
 
         /// <summary>Set intensity directly (e.g. every frame from a danger value). 0 = base layer … 1 = all.</summary>
