@@ -169,6 +169,7 @@ const BridgeAPI = {
               usedIn: Library.uses(x).map((u) => `${u.song.name} › ${u.pattern.name}${u.linked ? '' : ' (own version)'}`) }),
       },
       flavors: p.flavors.map((f) => ({ name: f.name, changes: Flavors.summary(f) })),
+      gameEvents: p.events.map((e) => ({ name: e.name, note: e.note || '', setUpInLevels: GameEvents.usedIn(e) })),
       scores: p.scores.map((s, i) => ({
         number: i + 1,
         name: s.name,
@@ -203,6 +204,9 @@ const BridgeAPI = {
         linkedThemes: Object.fromEntries(Object.entries(p.origins || {}).map(([tid, o]) => [tname(tid), ((Themes.find(o.theme) || {}).name || '?') + (o.speed !== 1 ? ` (${o.speed === 2 ? 'half' : 'double'} speed)` : '') + (o.oct ? ` (${o.oct > 0 ? '+' : ''}${o.oct} oct)` : '')])),
       })),
       playthrough: s.arrangement.map((i) => (s.patterns[i] || {}).name).filter(Boolean),
+      gameEvents: Object.fromEntries(GameEvents.list().map((e) => [e.name, GameEvents.summary(s, e)])),
+      stingBehaviour: Object.fromEntries(s.patterns.filter((p) => p.kind === 'sting').map((p) => [p.name,
+        `${GameEvents.PLAY[GameEvents.stingPlay(p)].label}${GameEvents.stingPlay(p) === 'goto' ? ` ${(s.patterns.find((q) => q.id === p.then) || {}).name || '?'}` : ''}${GameEvents.stingPlay(p) === 'over' ? ` (music at ${Math.round((p.duck ?? 0.6) * 100)}%)` : ''}; starts ${p.at || 'like the level'}`])),
       adaptive: { changeSegmentOn: { beat: 'next beat', bar: 'next bar', end: 'end of segment' }[s.adaptive.quant] },
     };
   },

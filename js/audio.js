@@ -397,7 +397,8 @@ function metronomeClick(ctx, t, accent) {
 }
 
 /* ---------- Step scheduling (shared by realtime + offline) ---------- */
-function scheduleStep(g, song, pat, local, time, stepDur) {
+/* velScale turns the step down (a loop under a sting that plays over the music). */
+function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1) {
   const swingOff = (song.swing / 100) * stepDur * 0.5;
   for (const t of song.tracks) {
     if (!trackAudible(song, t, g.only)) continue;
@@ -413,7 +414,7 @@ function scheduleStep(g, song, pat, local, time, stepDur) {
         const vel = grid[v.id] && grid[v.id][local];
         if (vel > 0) {
           const vs = s.voices[v.id];
-          playDrum(g, n.input, v.id, st, vel, s.kit, vs, vs && vs.sample ? App.sampleBuffer(vs.sample) : null);
+          playDrum(g, n.input, v.id, st, vel * velScale, s.kit, vs, vs && vs.sample ? App.sampleBuffer(vs.sample) : null);
         }
       }
     } else {
@@ -425,7 +426,7 @@ function scheduleStep(g, song, pat, local, time, stepDur) {
         const isOdd = Math.abs(nt.s - Math.round(nt.s)) < 1e-6 && Math.round(nt.s) % 2 === 1;
         const st = time + (nt.s - local) * stepDur + (isOdd ? swingOff : 0);
         const dur = nt.l * stepDur;
-        synthVoice(g.ctx, n.input, s.synth, nt.p, nt.v, st, dur).release(st + dur);
+        synthVoice(g.ctx, n.input, s.synth, nt.p, nt.v * velScale, st, dur).release(st + dur);
       }
     }
   }
@@ -481,10 +482,12 @@ const Seq = {
   /* ---- Adaptive mode: the game sits in a looping segment and asks to change segments.
      The change lands on the next beat / bar / segment end (score.adaptive.quant), optionally
      through a one-shot sting. This mirrors what the Unity player will do. ---- */
-  adapt: null, // { cur, local, after, next: {target, sting} | null }
+  adapt: null, // { cur, local, after, next: {target, sting, at, end} | null, ending, over: {pat, local, at, duck} | null }
   loops() { return App.song.patterns.map((p, i) => (p.kind === 'sting' ? -1 : i)).filter((i) => i >= 0); },
   stingIndex(id) { const i = App.song.patterns.findIndex((p) => p.id === id && p.kind === 'sting'); return i < 0 ? null : i; },
-  /* Ask for a segment (or a sting, which then returns to the current segment). */
+  /* Ask for a segment, or fire a sting the way it's set to play (pattern.play, like the Unity player's
+     PlaySting): 'instead' (default: the segment restarts after it), 'over' (the loop keeps going,
+     turned down), 'goto' (then segment pattern.then), 'end' (end the music). pattern.at overrides when. */
   request(i, asSting = false) {
     if (App.mode !== 'adaptive') UI.setMode('adaptive', false);
     if (!this.playing) {
@@ -492,8 +495,13 @@ const Seq = {
       this.start(0, i);
       return;
     }
-    const A = this.adapt;
-    if (asSting) A.next = { target: A.after ?? A.cur, sting: i };
+    const A = this.adapt, sp = asSting && App.song.patterns[i];
+    if (asSting && sp.play === 'end') return this.end(i);
+    if (asSting && sp.play === 'over') { A.over = { pat: i, local: null, at: sp.at || null, duck: sp.duck ?? 0.6 }; return; }
+    if (asSting) {
+      const then = sp.play === 'goto' ? App.song.patterns.findIndex((q) => q.id === sp.then && q.kind !== 'sting') : -1;
+      A.next = { target: then >= 0 ? then : A.after ?? A.cur, sting: i, at: sp.at || null };
+    }
     else if (A.ending) A.next = { target: i, sting: null };   // changed their mind: carry on after the sting
     else if (i === A.cur && !A.after) A.next = null;
     else A.next = { target: i, sting: null };
@@ -523,9 +531,17 @@ const Seq = {
     Engine.g.out.gain.cancelScheduledValues(Engine.ctx.currentTime);
     Engine.master();
   },
-  atBoundary(local) {
-    const q = App.song.adaptive.quant;
-    return q === 'beat' ? local % 4 === 0 : q === 'bar' ? local % 16 === 0 : local === 0;
+  /* Is this step a change point? `at` overrides the level's rule ('now' = any step). */
+  atBoundary(local, at) {
+    const q = at || App.song.adaptive.quant;
+    return q === 'now' ? true : q === 'beat' ? local % 4 === 0 : q === 'bar' ? local % 16 === 0 : local === 0;
+  },
+  /* Turn the music down (Duck) or back up, like the Unity player's SetDucked. */
+  duck(on, level = 0.35, seconds = 0.3) {
+    this.ducked = on ? clamp(level, 0, 1) : 1;
+    if (!Engine.g) return;
+    const m = App.song.mix || App.style.mix;
+    Engine.g.out.gain.setTargetAtTime(m.vol * this.ducked, Engine.ctx.currentTime, seconds / 3);
   },
   /* Advance the adaptive state by one step; returns the pattern + step to schedule. */
   adaptiveStep() {
@@ -544,7 +560,7 @@ const Seq = {
     }
     if (A.next && A.next.end && A.after === null && !A.ending && this.atBoundary(A.local)) {
       A.cur = A.next.sting; A.ending = true; A.local = 0; A.next = null;
-    } else if (A.next && !A.next.end && A.after === null && !A.ending && this.atBoundary(A.local)) {
+    } else if (A.next && !A.next.end && A.after === null && !A.ending && this.atBoundary(A.local, A.next.at)) {
       const target = A.next.target;
       const sting = A.next.sting ?? this.stingIndex(pats[target] && pats[target].entrySting);
       if (sting !== null && pats[sting]) { A.cur = sting; A.after = target; }
@@ -559,7 +575,7 @@ const Seq = {
     if (App.mode === 'adaptive') {
       const loops = this.loops();
       const first = segment ?? (loops.includes(App.sel.pattern) ? App.sel.pattern : loops[0] ?? App.sel.pattern);
-      this.adapt = { cur: first, local: 0, after: null, next: null, ending: false };
+      this.adapt = { cur: first, local: 0, after: null, next: null, ending: false, over: null };
       Engine.layers();
     }
     clearTimeout(this.endTimer);
@@ -578,6 +594,7 @@ const Seq = {
     this.playing = false;
     this.queue = [];
     this.adapt = null;
+    if (this.ducked !== undefined && this.ducked !== 1) { this.ducked = 1; if (Engine.g) Engine.master(); }
     Live.finishRecording();
     UI.onTransport();
   },
@@ -594,7 +611,19 @@ const Seq = {
           return;
         }
         const { pat: pi, local } = st;
-        scheduleStep(Engine.g, song, song.patterns[pi], local, this.nextTime, stepDur);
+        // A sting playing over the music: schedule it alongside the loop, and turn the loop down.
+        const O = this.adapt.over;
+        let under = 1;
+        if (O) {
+          if (O.local === null && this.atBoundary(local, O.at)) O.local = 0;
+          if (O.local !== null) {
+            const op = song.patterns[O.pat];
+            if (op) scheduleStep(Engine.g, song, op, O.local, this.nextTime, stepDur);
+            under = O.duck;
+            if (!op || ++O.local >= op.bars * 16) this.adapt.over = null;
+          }
+        }
+        scheduleStep(Engine.g, song, song.patterns[pi], local, this.nextTime, stepDur, under);
         if (App.metro && local % 4 === 0) metronomeClick(ctx, this.nextTime, local % 16 === 0);
         this.queue.push({ time: this.nextTime, step: local, pat: pi, local, block: -1, dur: stepDur });
         this.nextTime += stepDur;

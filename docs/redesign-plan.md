@@ -52,6 +52,8 @@ Each step ships on its own, keeps the app working, and is checked against the mu
    - The pattern bar above the editors now holds Segment / Sting, Enter through, Duplicate and Remove, plus the library link.
    - Layers are in Mixer & FX; a track's layer shows in its sidebar tooltip.
 4. **Game events.** Events defined in Synth, fired from the Simulate panel, exported in the manifest; Unity MusicCues reads them, with its table for overrides only.
+   - ✅ **4a, Synth** (done 2026-11-12; code in `js/events.js`, sting behaviours in `Seq.request` / `tick`). Game Style → Game events; Simulate's event buttons and *Edit events…*; sting settings (When fired, Starts, music level) in the pattern bar; manifest version 2 with `cues` and sting `play/then/at/duck`; Claude's `set_events`, `set_cues`, `set_sting`. Until 4b, the Unity player ignores the new manifest fields, so a sting set to *over* / *then go to* still plays *instead* in the game.
+   - **4b, Unity**: not started.
    - Unity work: play a sting *over* the music without stopping the loop (with ducking). "Instead, then back" is PlaySting; "End the music" is EndWithSting.
 5. **Later:** several instruments shown at once; maybe weave a theme into whatever is playing instead of a separate sting.
 
@@ -146,6 +148,57 @@ No new data: the map is drawn from what levels already have. Node order is the o
 | Change segment on | Map header |
 | Pattern type, Enter through | Pattern bar |
 | Layers list, rename, + Layer, remove, track → layer | Mixer & FX |
+
+## Step 4 design: game events and sting behaviours
+
+### Today
+- DeadDerby's `RunMusic` fires cue **names** (RunWaiting, RunStarted, SlowMotionOn/Off, Paused, Resumed, RunOver). What each one does lives in the **MusicCues table in the scene** (ProvingTrench): e.g. RunWaiting → Go To Segment Intro + Set Intensity 0.2; RunOver → End With Sting Finish.
+- So the music's behaviour is split: segments and stings in Synth, cues in a Unity Inspector table. Synth can't preview a cue, and renaming a segment in Synth silently breaks a cue.
+
+### Goal
+Synth holds the whole picture. The game only says *what happened*; Synth says *what the music does*, previews it, and exports it. The scene's table stays, but only for overrides.
+
+### Game events (Synth)
+- **The game's events** are a game-wide list (Game Style tab → Game events): names exactly as the game fires them, each with an optional note ("the run clock starts"). DeadDerby's seven get added to the real project with Claude's `set_events` / `set_cues`, copied from the scene's table (the demo project has a similar set built in).
+- **What each event does is set per level** (segment names differ per level), as a short list of actions:
+
+  | Action | Unity call |
+  |---|---|
+  | Go to segment *X* | GoToSegment |
+  | Start at segment *X* (right away) | Play |
+  | Play sting *S* (the way S is set to play) | PlaySting |
+  | Set intensity *n %* | SetIntensity |
+  | Turn the music down to *n %* / back up | Duck / Unduck |
+  | End on sting *S* / Fade out over *n s* | EndWithSting / Stop |
+
+  A new level copies the events' actions from the level it's duplicated from.
+- **Simulate** lists the level's events as buttons. Pressing one does exactly what the game would: the map lights up, intensity moves, and the status line says what happened ("RunStarted → Action through ⚡Alert at the next bar").
+- **Editing**: "Edit events…" in Simulate opens a window with one row per event and its actions for this level (add, change, remove, reorder).
+
+### Sting behaviours (Synth + Unity)
+Each sting in a level chooses how it plays when an event (or PlaySting) fires it. Shown in the pattern bar when a sting is selected, and as a short label on its map chip:
+- **Instead, then the segment restarts** (default; today's PlaySting)
+- **Over the music**: the loop keeps playing, turned down to *n %* while the sting plays (default 60%)
+- **Then go to *X***: the sting plays, then segment X starts (it shows as an arrow on the map from the sting to X)
+- **End the music**: like End on sting
+- **Starts**: the level's *Changes land on* (default), or right away / next beat / next bar for this sting
+
+A sting used as a segment's *Enter through* still always leads into that segment.
+
+### Export
+The manifest gains `cues` (event → actions, same names as MusicCues) and, per sting, `play`, `then`, `at` and `duck`. Manifest version goes to 2; the Unity scripts read version 1 files as before.
+
+### Unity (Synth repo's `unity/` scripts, then copied into DeadDerby)
+- **MusicCues**: `Trigger("RunStarted")` uses the Inspector table's rows for that name if there are any, otherwise the manifest's cues. The table becomes "overrides". The name check warns about events neither knows.
+- **AdaptiveMusicPlayer**: PlaySting follows the sting's `play` and `at`. *Over the music* plays the sting on its own sources and turns only the loop down for the sting's length.
+- **DeadDerby**: after re-exporting (with your OK, as before), the scene's table keeps working unchanged because it overrides with the same meaning. Clearing it so Synth drives everything is a separate step I'll ask about.
+
+### Claude tools
+`set_events` (the game's event list), `set_cues` (a level's actions for an event), `set_sting` (behaviour and timing). `get_score` shows each event's actions and each sting's behaviour; `fire_event` isn't needed (Claude can't hear it).
+
+### Order of work
+- **4a, Synth only**: events, cues, sting behaviours, Simulate, export fields, Claude tools. Nothing changes in the game.
+- **4b, Unity**: the two scripts, then export into DeadDerby (asking first), and a Play-mode test of each event in ProvingTrench.
 
 ## Must-keep list
 

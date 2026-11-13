@@ -110,6 +110,7 @@ function duplicateScore(src, name) {
   s.patterns.forEach((p) => {
     p.id = pmap[p.id];
     if (p.entrySting) p.entrySting = pmap[p.entrySting] || null;
+    if (p.then) p.then = pmap[p.then] || null;
     const d = {}, n = {};
     Object.keys(p.drums).forEach((k) => { if (map[k]) d[map[k]] = p.drums[k]; });
     Object.keys(p.notes).forEach((k) => { if (map[k]) n[map[k]] = p.notes[k]; });
@@ -118,6 +119,7 @@ function duplicateScore(src, name) {
     Object.keys(p.origins || {}).forEach((k) => { if (map[k]) o[map[k]] = p.origins[k]; });
     p.origins = o;
   });
+  Object.values(s.cues || {}).forEach((xs) => xs.forEach((a) => { if (a.target) a.target = pmap[a.target] || null; }));
   return s;
 }
 
@@ -217,7 +219,17 @@ function demoProject() {
   const ice = { id: uid(), name: 'Ice', sounds: {}, mix: clone(L2.mix) };
   L2.tracks.forEach((t) => { if (t.sound) ice.sounds[t.role] = clone(t.sound); });
 
-  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [L1, L2], current: 0, themes: [main], flavors: [ice] };
+  // What the game tells the music (named as the game fires them), and what each level does about it.
+  const ev = (name, note) => ({ id: uid(), name, note });
+  const events = [ev('RunWaiting', 'waiting at the start line'), ev('RunStarted', 'the run clock starts'), ev('ClockLow', 'time is nearly up'),
+    ev('Paused', 'pause menu open'), ev('Resumed', 'pause menu closed'), ev('RunOver', 'the run has ended')];
+  const [eW, eS, eC, eP, eR, eO] = events;
+  const act = (d, target, value) => ({ do: d, target: target ? target.id : null, value: value ?? null });
+  L1.cues = { [eW.id]: [act('goto', C), act('intensity', null, 0.2)], [eS.id]: [act('goto', B), act('intensity', null, 0.5)], [eC.id]: [act('intensity', null, 1)],
+    [eP.id]: [act('duck', null, 0.3)], [eR.id]: [act('unduck')], [eO.id]: [act('end', S1)] };
+  L2.cues = { [eW.id]: [act('goto', E), act('intensity', null, 0.2)], [eS.id]: [act('goto', D)], [eC.id]: [act('intensity', null, 1)],
+    [eP.id]: [act('duck', null, 0.3)], [eR.id]: [act('unduck')], [eO.id]: [act('fade', null, 2)] };
+  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [L1, L2], current: 0, themes: [main], flavors: [ice], events };
 }
 
 /* Older saves were a single song with sounds on each track: wrap them in a project,
@@ -289,6 +301,7 @@ const App = {
       ensureAll(s);
     });
     Library.migrate(p);
+    GameEvents.migrate(p);
   },
   resetSelection() {
     this.sel.track = (this.song.tracks.find((t) => t.type === 'synth') || this.song.tracks[0] || {}).id;

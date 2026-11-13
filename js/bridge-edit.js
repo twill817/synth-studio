@@ -375,6 +375,65 @@ Object.assign(BridgeAPI, {
     });
   },
 
+  /* ===== game events: what the game tells the music, and what each level does ===== */
+  setEvents({ add, remove, rename, notes }) {
+    return Edit.run(undefined, () => {
+      const did = [];
+      (add || []).forEach((x) => { const ev = GameEvents.add(typeof x === 'string' ? x : x.name, (x && x.note) || ''); did.push(`added ${ev.name}`); });
+      Object.entries(rename || {}).forEach(([from, to]) => {
+        const ev = GameEvents.byName(from); if (!ev) throw new Error(`No event called “${from}”.`);
+        if (GameEvents.byName(to) && GameEvents.byName(to) !== ev) throw new Error(`“${to}” already exists.`);
+        ev.name = to; did.push(`renamed ${from} → ${to} (the game's code must fire the new name)`);
+      });
+      Object.entries(notes || {}).forEach(([n, note]) => { const ev = GameEvents.byName(n); if (!ev) throw new Error(`No event called “${n}”.`); ev.note = note; did.push(`note on ${ev.name}`); });
+      (remove || []).forEach((n) => { const ev = GameEvents.byName(n); if (!ev) throw new Error(`No event called “${n}”.`); GameEvents.remove(ev); did.push(`removed ${n}`); });
+      if (!did.length) throw new Error('Give add, remove, rename and/or notes.');
+      return `Game events: ${did.join('; ')}. Now: ${GameEvents.list().map((e) => e.name).join(', ') || 'none'}.`;
+    }, { view: 'style' });
+  },
+
+  setCues({ score, event, actions }) {
+    return Edit.run(score, (s) => {
+      const ev = GameEvents.byName(event);
+      if (!ev) throw new Error(`No game event “${event}”. Events: ${GameEvents.list().map((e) => e.name).join(', ') || 'none'} (add it with set_events).`);
+      const out = (actions || []).map((a, k) => {
+        const A = GameEvents.ACTIONS[a.do];
+        if (!A) throw new Error(`Action ${k + 1}: “${a.do}” isn't an action. Actions: ${Object.keys(GameEvents.ACTIONS).join(', ')}.`);
+        const x = { do: a.do, target: null, value: A.def ?? null };
+        if (A.target) {
+          if (!a.target) throw new Error(`Action ${k + 1} (${a.do}) needs a target ${A.target}.`);
+          const p = Ref.pattern(s, a.target);
+          if ((A.target === 'sting') !== (p.kind === 'sting')) throw new Error(`Action ${k + 1}: “${p.name}” isn't a ${A.target}.`);
+          x.target = p.id;
+        }
+        if (A.value === 'pct') x.value = clamp(a.value ?? A.def, 0, 1);
+        if (A.value === 'sec') x.value = clamp(a.value ?? A.def, 0.1, 30);
+        return x;
+      });
+      if (out.length) s.cues[ev.id] = out; else delete s.cues[ev.id];
+      return `${s.name}: ${ev.name} → ${GameEvents.summary(s, ev)}.`;
+    });
+  },
+
+  setSting({ score, sting, play, then, at, duck }) {
+    return Edit.run(score, (s) => {
+      const p = Ref.pattern(s, sting);
+      if (p.kind !== 'sting') throw new Error(`“${p.name}” is a segment, not a sting.`);
+      const did = [];
+      if (play !== undefined) {
+        if (!GameEvents.PLAY[play]) throw new Error(`play must be one of: ${Object.keys(GameEvents.PLAY).join(', ')}.`);
+        p.play = play; did.push(`plays: ${GameEvents.PLAY[play].label.toLowerCase()}`);
+      }
+      if (then !== undefined) { const t = Ref.pattern(s, then); if (t.kind === 'sting') throw new Error('then must be a segment.'); p.then = t.id; did.push(`then ${t.name}`); }
+      if (p.play === 'goto' && !s.patterns.some((q) => q.id === p.then)) throw new Error('play "goto" needs then (a segment).');
+      if (at !== undefined) { if (![null, '', 'now', 'beat', 'bar'].includes(at)) throw new Error('at: "now", "beat", "bar", or "" for the level’s rule.'); p.at = at || null; did.push(`starts ${at || 'like the level'}`); }
+      if (duck !== undefined) { p.duck = clamp(duck, 0, 1); did.push(`music at ${Math.round(p.duck * 100)}% under it`); }
+      if (!did.length) throw new Error('Give play, then, at and/or duck.');
+      Edit._show = { pattern: p };
+      return `${s.name} › ⚡${p.name}: ${did.join(', ')}. (Map label: ${GameEvents.stingLabel(s, p)}.)`;
+    }, Edit.consumeShow());
+  },
+
   /* ===== library ===== */
   placePattern({ score, item, name, entrySting }) {
     return Edit.run(score, (s) => {

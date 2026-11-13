@@ -172,6 +172,12 @@ Object.assign(UI, {
         const others = Library.alsoIn(p, s);
         if (others.length) toast(`“${p.name}” is linked, so it's now a ${p.kind === 'sting' ? 'sting' : 'segment'} in ${others.join(', ')} too`, 3500);
       } else if (el.dataset.pb === 'entry') p.entrySting = el.value || null;
+      else if (el.dataset.pb === 'play') {
+        p.play = el.value;
+        if (p.play === 'goto' && !s.patterns.some((q) => q.id === p.then && q.kind !== 'sting')) p.then = (s.patterns.find((q) => q.kind !== 'sting') || {}).id || null;
+      } else if (el.dataset.pb === 'then') p.then = el.value || null;
+      else if (el.dataset.pb === 'at') p.at = el.value || null;
+      else if (el.dataset.pb === 'duck') p.duck = clamp((+el.value || 0) / 100, 0, 1);
       App.changed();
       this.renderPatterns();
     });
@@ -221,8 +227,8 @@ Object.assign(UI, {
     </div>`;
     const anytime = stings.length
       ? `<span class="cap">Can play anytime</span>${stings.map(({ p, i }) => `<div class="map-sting ${i === App.sel.pattern ? 'sel' : ''}" data-i="${i}" title="Click to edit · double-click to rename">
-          <span class="name">⚡ ${esc(p.name)}</span>${this.libMark(p)}<small class="muted">${bars(p)}</small><span class="state"></span>
-          <button class="play" data-act="sting" title="Play it like PlaySting: at the next change point, then the segment restarts">▶</button><button class="x" data-act="del" title="Remove from this level (it stays in the library)">✕</button>
+          <span class="name">⚡ ${esc(p.name)}</span>${this.libMark(p)}<small class="muted">${bars(p)} · ${esc(GameEvents.stingLabel(s, p))}</small><span class="state"></span>
+          <button class="play" data-act="sting" title="Play it like PlaySting does in the game: ${esc(GameEvents.PLAY[GameEvents.stingPlay(p)].label.toLowerCase())}">▶</button><button class="x" data-act="del" title="Remove from this level (it stays in the library)">✕</button>
         </div>`).join('')}`
       : '<span class="muted" title="A sting is a short one-shot: a moment, a way into a segment, or the ending">No stings yet (+ Sting)</span>';
     body.innerHTML = `<div class="map-nodes">${nodes || '<span class="muted">No segments yet — + Segment adds one.</span>'}<span class="map-gap" aria-hidden="true"></span>${end}
@@ -239,11 +245,14 @@ Object.assign(UI, {
     sim.innerHTML = `<div class="cap">Simulate the game</div>
       <div class="row gap"><button data-sim="start" class="${on ? 'on' : ''}" title="${on ? 'Stop' : 'Play the level from its first segment, like the game'}">${on ? '■ Stop' : '▶ Start'}</button>
         <button data-sim="fade" ${on ? '' : 'disabled'} title="Fade out over 2 seconds, like Stop in the game">Fade out</button></div>
+      <div class="sim-events">${GameEvents.list().map((ev) => `<button data-ev="${ev.id}" class="${this.lastEvent === ev.id ? 'last' : ''}" title="${esc(GameEvents.summary(s, ev))}">${esc(ev.name)}</button>`).join('')}
+        <button data-sim="editEvents" class="ghost" title="What each game event does in this level">${GameEvents.list().length ? 'Edit events…' : '+ Game events…'}</button></div>
+      ${this.simLog ? `<div class="sim-log">${esc(this.simLog)}</div>` : ''}
+      <div id="simStatus" class="sim-status"></div>
       ${s.layers.length > 1 ? `<div class="intensity">
           <label>Intensity <input id="intensity" type="range" min="0" max="1" step="0.01" value="${App.intensity}"><b id="intensityVal"></b></label>
           <div class="lvls">${s.layers.map((l, i) => `<div class="lvl"><span class="lvl-meter" data-i="${i}"></span><span>${esc(l.name)}</span></div>`).join('')}</div>
-        </div>` : '<p class="muted small">One intensity layer: add layers in Mixer &amp; FX to preview intensity.</p>'}
-      <div id="simStatus" class="sim-status"></div>`;
+        </div>` : '<p class="muted small">One intensity layer: add layers in Mixer &amp; FX to preview intensity.</p>'}`;
     this.showLayerLevels();
     this._mapKey = null;
     this.markMap();
@@ -268,13 +277,14 @@ Object.assign(UI, {
     const playing = A ? A.cur : loopPat;
     const queuedSeg = A ? (A.next && A.next.target !== null && A.next.target !== undefined && !A.next.end ? A.next.target : A.after) : null;
     const queuedSting = A && A.next ? A.next.sting : null;
-    const key = [playing, queuedSeg, queuedSting, A && A.ending, A && A.next && A.next.end, !!A, Seq.playing].join('|');
+    const over = A && A.over ? A.over : null;
+    const key = [playing, queuedSeg, queuedSting, A && A.ending, A && A.next && A.next.end, !!A, Seq.playing, over && over.pat, over && over.local !== null].join('|');
     if (key === this._mapKey) return;
     this._mapKey = key;
     $$('#mapBody [data-i]').forEach((n) => {
       const i = +n.dataset.i;
-      const isPlaying = i === playing && !(A && A.ending);
-      const isQueued = A && !isPlaying && (i === queuedSeg || i === queuedSting);
+      const isPlaying = (i === playing && !(A && A.ending)) || (over && over.pat === i && over.local !== null);
+      const isQueued = A && !isPlaying && (i === queuedSeg || i === queuedSting || (over && over.pat === i));
       n.classList.toggle('playing', !!isPlaying);
       n.classList.toggle('queued', !!isQueued);
       const st = $('.state', n);
@@ -296,6 +306,7 @@ Object.assign(UI, {
     else {
       const cur = s.patterns[A.cur] && s.patterns[A.cur].kind === 'sting' ? `⚡${nm(A.cur)}, then ${nm(A.after)}` : nm(A.cur);
       text = `Playing ${cur}.`;
+      if (over) text += over.local !== null ? ` ⚡${nm(over.pat)} over the music.` : ` ⚡${nm(over.pat)} over the music at the ${over.at === 'now' ? 'next step' : { beat: 'next beat', bar: 'next bar' }[over.at] || quant}.`;
       if (A.next && A.next.end) text += ` Ending on ⚡${nm(A.next.sting)} at the ${quant}.`;
       else if (A.next && A.next.sting !== null && A.next.sting !== undefined) text += ` ⚡${nm(A.next.sting)} at the ${quant}, then ${nm(A.next.target)} restarts.`;
       else if (A.next) {

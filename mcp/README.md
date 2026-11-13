@@ -48,6 +48,9 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | `generate_part` | Chords, bass, arps or a riff that follow the key and a progression |
 | `transform_notes` | Transpose, octave, quantize, velocity |
 | `insert_theme` / `save_theme` / `reapply_theme` | Use the game's themes (library melodies) in any level (fitted to its key), save new ones, refresh every linked use |
+| `set_events` | The game's event list (names as the game fires them) |
+| `set_cues` | What an event does in a level (go to, sting, intensity, duck, end, fade…) |
+| `set_sting` | How a sting plays when fired: instead / over the music / then go to / end; when it starts |
 | `place_pattern` | Reuse a library segment or sting in a level, linked (moved into the level's key) |
 | `library_item` | Rename / duplicate / delete a library item; split a level's pattern into its own version, or relink it |
 | **Structure** | |

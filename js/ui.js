@@ -113,6 +113,7 @@ const UI = {
     this.initStyle();
     this.initLibrary();
     this.initMap();
+    this.initEvents();
     this.initInst();
     this.initKeyboard();
     this.initExport();
@@ -344,6 +345,7 @@ const UI = {
     const head = `<b class="pb-name">${p.kind === 'sting' ? '⚡ ' : ''}${esc(p.name)}</b>
       <select data-pb="kind" title="A segment loops while the game stays in it; a sting plays once"><option value="loop" ${p.kind !== 'sting' ? 'selected' : ''}>Segment · loops</option><option value="sting" ${p.kind === 'sting' ? 'selected' : ''}>Sting · plays once</option></select>
       ${p.kind !== 'sting' && stings.length ? `<label title="The game plays this sting on the way into ${esc(p.name)}, from any segment">Enter through <select data-pb="entry"><option value="">no sting</option>${stings.map((q) => `<option value="${q.id}" ${p.entrySting === q.id ? 'selected' : ''}>⚡ ${esc(q.name)}</option>`).join('')}</select></label>` : ''}
+      ${p.kind === 'sting' ? this.stingSettingsHTML(p, s) : ''}
       <button data-pbact="dup" title="Copy this pattern as a new, separate library item">Duplicate</button>
       ${s.patterns.length > 1 ? '<button data-pbact="remove" title="Remove from this level (it stays in the library)">Remove</button>' : ''}
       <span class="pb-sep"></span>`;
@@ -359,6 +361,15 @@ const UI = {
         <button data-libact="relink" title="Drop this level's changes and use the library's version again">Back to the library version</button>`;
     }
     $$('.lib-bar').forEach((el) => { el.innerHTML = head + html; el.hidden = false; });
+  },
+  /* How a sting plays when an event (PlaySting) fires it — this level's setting. */
+  stingSettingsHTML(p, s) {
+    const play = GameEvents.stingPlay(p), segs = s.patterns.filter((q) => q.kind !== 'sting');
+    const quant = { beat: 'next beat', bar: 'next bar', end: 'end of segment' }[s.adaptive.quant];
+    return `<label title="What happens when a game event plays this sting">When fired <select data-pb="play">${Object.entries(GameEvents.PLAY).map(([k, v]) => `<option value="${k}" ${k === play ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
+      ${play === 'goto' ? `<select data-pb="then" aria-label="Segment to go to">${segs.map((q) => `<option value="${q.id}" ${q.id === p.then ? 'selected' : ''}>${esc(q.name)}</option>`).join('')}</select>` : ''}
+      ${play === 'over' ? `<label title="How loud the music plays under the sting">music at <input type="number" data-pb="duck" min="0" max="100" step="5" value="${Math.round((p.duck ?? 0.6) * 100)}">%</label>` : ''}
+      <label title="When the sting starts after it's fired">Starts <select data-pb="at"><option value="" ${!p.at ? 'selected' : ''}>like the level (${quant})</option><option value="now" ${p.at === 'now' ? 'selected' : ''}>right away</option><option value="beat" ${p.at === 'beat' ? 'selected' : ''}>next beat</option><option value="bar" ${p.at === 'bar' ? 'selected' : ''}>next bar</option></select></label>`;
   },
   /* Library patterns that could go into this level. */
   renderPlace() {
@@ -1055,6 +1066,7 @@ const UI = {
   initStyle() {
     const sp = $('#stylePanel');
     sp.addEventListener('click', (e) => {
+      if (this.styleEventsClick(e)) return;
       const act = e.target.dataset.act;
       if (act === 'addRole') {
         const k = $('#newRolePreset').value;
@@ -1108,6 +1120,7 @@ const UI = {
       if (act === 'rename') this.renameRole(r.id);
     });
     sp.addEventListener('dblclick', (e) => {
+      if (this.styleEventsDblclick(e)) return;
       const row = e.target.closest('.role-row');
       if (row && !e.target.closest('button')) this.renameRole(row.dataset.id);
     });
@@ -1157,6 +1170,7 @@ const UI = {
           <button data-act="addRole">+ Role</button>
         </div>
       </section>
+      ${this.styleEventsHTML()}
       <section class="style-sec">
         <h4 class="subhead">Themes</h4>
         <p class="muted">The game's recurring melodies (${Library.melodies().length}) are in the <b>Library</b> tab now, with its segments and stings. Save one from the Piano Roll (“Save as theme”), then insert it into any level there.</p>

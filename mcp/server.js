@@ -285,6 +285,15 @@ edit('set_pattern', 'Change a pattern', 'Rename a pattern, change its length (1/
 
 edit('delete_pattern', 'Delete a pattern', 'Delete a pattern (and its blocks in the export playthrough).', { score: scoreRef, pattern: patternRef }, 'deletePattern');
 
+edit('set_events', 'Set the game’s events', 'The game-wide list of events the game fires (MusicCues.Trigger names, e.g. RunStarted), spelled exactly as the game’s code does. add: names or {name, note}; remove: names; rename: {old: new}; notes: {name: note}. What each event does is set per level with set_cues.',
+  { add: z.array(z.union([z.string(), z.object({ name: z.string(), note: z.string().optional() })])).optional(), remove: z.array(z.string()).optional(), rename: z.record(z.string(), z.string()).optional(), notes: z.record(z.string(), z.string()).optional() }, 'setEvents');
+
+edit('set_cues', 'Set what an event does in a level', 'Replace what the music does in one level when the game fires an event, as a list of actions (in order): goto (segment), play (start at a segment right away), sting (play a sting the way it is set to play), intensity (value 0–1), duck (value 0–1: how loud while turned down), unduck, end (end on a sting), fade (value: seconds). Empty list = the event does nothing here. Exported to Unity’s MusicCues; its Inspector table only overrides.',
+  { score: scoreRef, event: z.string(), actions: z.array(z.object({ do: z.enum(['goto', 'play', 'sting', 'intensity', 'duck', 'unduck', 'end', 'fade']), target: z.string().optional(), value: z.number().optional() })) }, 'setCues');
+
+edit('set_sting', 'Set how a sting plays', 'How a sting plays in a level when an event (PlaySting) fires it: play = instead (default: the segment restarts after it) | over (the loop keeps going, turned down to duck 0–1) | goto (then segment `then`) | end (end the music). at = "now" | "beat" | "bar" | "" (the level’s rule). A sting used as a segment’s entry sting still leads into that segment.',
+  { score: scoreRef, sting: z.string(), play: z.enum(['instead', 'over', 'goto', 'end']).optional(), then: z.string().optional(), at: z.string().optional(), duck: z.number().optional() }, 'setSting');
+
 edit('place_pattern', 'Place a library pattern in a level', 'Put a segment or sting from the game library into a level, linked: editing it in any level changes it everywhere it is linked. Pitched parts shift to the level’s key; drums don’t. Each track plays the part for its instrument role. Optional name (the level’s name for it, also its Unity cue name) and entry_sting.',
   { score: scoreRef, item: z.string(), name: z.string().optional(), entry_sting: z.string().optional() }, 'placePattern');
 

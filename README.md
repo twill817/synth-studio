@@ -32,6 +32,8 @@ The **map** above the editor tabs shows a level's music the way the game moves t
 - **Stings** play once. One can be a segment's way in (*Enter through* in the bar above the editor; it shows as "⚡ Alert ›" on the segment). *Can play anytime* plays one like the game's PlaySting (the segment restarts after it). **End** ends the music on a sting, or fades out.
 - **Changes land on** the next beat, bar, or end of the segment.
 - **Simulate** (right of the map) plays the level like the game: ▶ Start from the first segment, Fade out, and the **intensity** slider. The transport's ▶ just loops the selected pattern.
+- **Game events** — the names the game fires (RunStarted, ClockLow, …) are listed in Game Style → Game events. What each one does is set per level in Simulate › *Edit events…*: go to a segment, play a sting, set intensity, turn the music down or back up, end on a sting, fade out. Simulate's event buttons do exactly what the game would. The export carries them to Unity's MusicCues.
+- **Sting settings** (the bar above the editor, with a sting selected): *When fired* — instead (the segment restarts after it), over the music (turned down while it plays), then go to a segment, or end the music — and when it *Starts*.
 - **Intensity layers** (Mixer & FX) group tracks into stacked layers (e.g. Base → Rhythm → Intensity). The base always plays; each layer above fades in as intensity rises.
 
 ## Unity export

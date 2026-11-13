@@ -338,7 +338,7 @@ fieldset label { color: var(--text); }
 .claude-btn.connected { color: #0d2312; background: var(--accent2); border-color: var(--accent2); font-weight: 600; }
 
 /* Level map (above the editor tabs) + Simulate */
-.map-area { display: grid; grid-template-columns: minmax(0, 1fr) 250px; border-bottom: 1px solid var(--line); background: #15171c; }
+.map-area { display: grid; grid-template-columns: minmax(0, 1fr) 320px; border-bottom: 1px solid var(--line); background: #15171c; }
 .map-main { min-width: 0; display: flex; flex-direction: column; }
 .map-head { display: flex; align-items: center; gap: 10px; padding: 4px 10px; flex-wrap: wrap; }
 .map-fold { font-weight: 700; background: transparent; border-color: transparent; padding: 2px 6px; }
@@ -390,6 +390,28 @@ fieldset label { color: var(--text); }
 .sim-panel .intensity label { display: flex; align-items: center; gap: 6px; }
 .sim-panel .lvls { gap: 8px; }
 .sim-panel .lvl-meter { width: 30px; }
+.sim-events { display: flex; flex-wrap: wrap; gap: 4px; }
+.sim-events button { font-size: 11px; padding: 2px 8px; }
+.sim-events button.last { border-color: var(--accent2); background: #22382b; }
+.sim-events button.ghost { background: transparent; color: var(--muted); }
+.sim-log { font-size: 11px; color: var(--text); line-height: 1.35; }
+.map-area.folded .sim-events, .map-area.folded .sim-log { display: none; }
+.events-dlg { width: min(720px, calc(100vw - 32px)); }
+.events-body { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow: auto; }
+.ev-row { background: #1a1d23; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.ev-head { display: flex; align-items: center; gap: 8px; }
+.ev-head button { padding: 0 8px; font-size: 11px; }
+.ev-head .muted { font-size: 11px; }
+.ev-acts { display: flex; flex-direction: column; gap: 4px; padding-left: 26px; font-size: 12px; }
+.ev-act { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ev-act input { width: 64px; }
+.ev-add { display: flex; gap: 6px; padding-left: 26px; }
+.ev-add select, .ev-add button, .ev-act select { font-size: 12px; }
+.event-row { display: grid; grid-template-columns: minmax(110px, 180px) 20px minmax(0, 1fr) 70px 22px; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; background: #1a1d23; }
+.event-row:hover .edit { opacity: 1; }
+.event-row .name { font-weight: 600; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.event-row .note, .event-row .use { font-size: 11px; }
+.lib-bar input[type=number] { width: 52px; font-size: 12px; }
 .sim-status { color: var(--accent2); font-size: 11px; line-height: 1.35; min-height: 30px; }
 .small { font-size: 11px; margin: 0; }
 /* Pattern bar (above the Beat grid and Piano Roll) */
@@ -404,3 +426,7 @@ fieldset label { color: var(--text); }
 .strip-layer select { width: 100%; font-size: 11px; }
 .layer-tag { font-size: 10px; color: var(--muted); flex: none; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 900px) { .map-area { grid-template-columns: 1fr; } .sim-panel { border-left: 0; border-top: 1px solid var(--line); } }
+.sim-panel { contain: size; overflow: auto; }  /* as tall as the map beside it; scrolls if needed */
+@media (max-width: 900px) { .sim-panel { contain: none; } }
+.sim-panel .intensity { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.sim-panel .intensity label { flex: 1 1 100%; }

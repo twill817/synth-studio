@@ -110,7 +110,10 @@ const UnityExport = {
       const file = fileName(p.name);
       audio.push({ file, chs: r.chs, sting: true });
       mixPeak = Math.max(mixPeak, this.peak(r.chs));
-      stingOut.push({ name: p.name, bars: p.bars, musicalLengthSamples: r.musical, lengthSamples: r.chs[0].length, file });
+      // How the sting plays when PlaySting fires it (MusicCues / game code); see GameEvents.PLAY.
+      const play = GameEvents.stingPlay(p), then = play === 'goto' ? song.patterns.find((q) => q.id === p.then && q.kind !== 'sting') : null;
+      stingOut.push({ name: p.name, bars: p.bars, musicalLengthSamples: r.musical, lengthSamples: r.chs[0].length, file,
+        play: play === 'goto' && !then ? 'instead' : play, then: then ? then.name : '', at: p.at || '', duck: +(p.duck ?? 0.6) });
     }
 
     // One gain for the whole score: loudest segment → target, peaks kept under -1 dBFS.
@@ -122,7 +125,7 @@ const UnityExport = {
     audio.forEach((a) => this.scale(a.chs, k));
 
     const manifest = {
-      format: 'SynthStudio.AdaptiveMusic', version: 1,
+      format: 'SynthStudio.AdaptiveMusic', version: 2,
       game: App.project.name, score: song.name,
       bpm: song.bpm, beatsPerBar: 4, sampleRate: sr,
       quantize: song.adaptive.quant,
@@ -130,6 +133,7 @@ const UnityExport = {
       layers: song.layers.map((l) => ({ name: l.name })),
       segments: segOut,
       stings: stingOut,
+      cues: GameEvents.exportCues(song),   // event → player calls, for MusicCues (its Inspector table overrides)
       loudness: { targetLufs: opts.targetLufs, measuredLufs: isFinite(loudest) ? +loudest.toFixed(1) : null, gainDb: +gainDb.toFixed(2) },
     };
     const files = [{ name: 'manifest.json', data: new TextEncoder().encode(JSON.stringify(manifest, null, 2)) }];
