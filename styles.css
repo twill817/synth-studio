@@ -141,6 +141,20 @@ main { display: grid; grid-template-columns: 230px 1fr; min-height: 0; }
 .roll-inner { display: flex; width: max-content; }
 #rollKeys { position: sticky; left: 0; z-index: 2; flex: none; }
 #rollGrid { cursor: crosshair; flex: none; }
+.roll-drums { display: flex; width: max-content; position: sticky; top: 0; z-index: 3; border-bottom: 1px solid var(--line); }
+.roll-drums[hidden] { display: none; }
+#rollDrumKeys { position: sticky; left: 0; z-index: 1; flex: none; }
+#rollDrums { flex: none; cursor: pointer; }
+.roll-chips { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.rchip { display: inline-flex; align-items: stretch; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--c) 55%, transparent); background: color-mix(in srgb, var(--c) 16%, transparent); font-size: 12px; overflow: hidden; }
+.rchip button { border: 0; background: none; border-radius: 0; padding: 2px 8px; font-size: 12px; color: var(--text); }
+.rchip .rc-eye { padding: 2px 7px 2px 4px; color: var(--muted); }
+.rchip.writing { background: color-mix(in srgb, var(--c) 38%, transparent); border-color: var(--c); }
+.rchip.writing .rc-name { font-weight: 600; }
+.rchip.hidden { background: none; border-style: dashed; border-color: #4a5160; }
+.rchip.hidden .rc-name { color: var(--muted); }
+.rchip.muted .rc-name { text-decoration: line-through; }
+.roll-chips .rc-all { font-size: 11px; padding: 2px 8px; }
 
 /* Library */
 .lib-tag { color: #8cc8f5; font-size: 12px; flex: none; }

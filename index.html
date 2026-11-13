@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Synth Studio</title>
 <!-- Build number: stamped by tools/pre-commit into this tag, every ?v= below, and version.txt. -->
-<meta name="build" content="20261113043123">
+<meta name="build" content="20261113054758">
 <script>
 /* Stale-page check. Browsers may keep this page cached for a few minutes after an update.
    version.txt is always fetched fresh; if it names a newer build than this page, reload once
@@ -21,7 +21,7 @@
   }).catch(function () { /* opened as a file, or offline: nothing to check */ });
 })();
 </script>
-<link rel="stylesheet" href="styles.css?v=20261113043123">
+<link rel="stylesheet" href="styles.css?v=20261113054758">
 </head>
 <body>
 <header id="topbar">
@@ -115,7 +115,7 @@
     <div class="view" id="view-roll">
       <div class="toolbar sub lib-bar" hidden></div>
       <div class="toolbar">
-        <label>Track <select id="rollTrack"></select></label>
+        <span id="rollChips" class="roll-chips" role="group" aria-label="Tracks in the piano roll"></span>
         <label>Snap <select id="rollSnap">
           <option value="0.5">1/32</option><option value="1" selected>1/16</option><option value="2">1/8</option>
           <option value="4">1/4</option><option value="8">1/2</option><option value="16">1 bar</option></select></label>
@@ -126,7 +126,6 @@
         <label>Key <select id="songKey"></select></label>
         <label>Scale <select id="songScale"></select></label>
         <label>Bars <select class="barsSel"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
-        <label><input type="checkbox" id="rollGhost" checked> Ghost notes</label>
         <label>Zoom <input id="rollZoom" type="range" min="10" max="48" value="22"></label>
       </div>
       <div class="toolbar sub">
@@ -160,6 +159,10 @@
         </span>
       </div>
       <div id="rollWrap" class="roll-wrap">
+        <div class="roll-drums" id="rollDrumRow" hidden>
+          <canvas id="rollDrumKeys"></canvas>
+          <canvas id="rollDrums" title="Drums — click to edit them in the Beat grid"></canvas>
+        </div>
         <div class="roll-inner">
           <canvas id="rollKeys"></canvas>
           <canvas id="rollGrid"></canvas>
@@ -264,20 +267,20 @@
 <input type="file" id="fileOpen" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
 <input type="file" id="fileSample" accept="audio/*" hidden>
 
-<script src="js/presets.js?v=20261113043123"></script>
-<script src="js/audio.js?v=20261113043123"></script>
-<script src="js/export.js?v=20261113043123"></script>
-<script src="js/unity.js?v=20261113043123"></script>
-<script src="js/app.js?v=20261113043123"></script>
-<script src="js/library.js?v=20261113043123"></script>
-<script src="js/themes.js?v=20261113043123"></script>
-<script src="js/ui.js?v=20261113043123"></script>
-<script src="js/events.js?v=20261113043123"></script>
-<script src="js/map.js?v=20261113043123"></script>
-<script src="js/roll.js?v=20261113043123"></script>
-<script src="js/bridge.js?v=20261113043123"></script>
-<script src="js/bridge-edit.js?v=20261113043123"></script>
-<script src="js/bridge-production.js?v=20261113043123"></script>
+<script src="js/presets.js?v=20261113054758"></script>
+<script src="js/audio.js?v=20261113054758"></script>
+<script src="js/export.js?v=20261113054758"></script>
+<script src="js/unity.js?v=20261113054758"></script>
+<script src="js/app.js?v=20261113054758"></script>
+<script src="js/library.js?v=20261113054758"></script>
+<script src="js/themes.js?v=20261113054758"></script>
+<script src="js/ui.js?v=20261113054758"></script>
+<script src="js/events.js?v=20261113054758"></script>
+<script src="js/map.js?v=20261113054758"></script>
+<script src="js/roll.js?v=20261113054758"></script>
+<script src="js/bridge.js?v=20261113054758"></script>
+<script src="js/bridge-edit.js?v=20261113054758"></script>
+<script src="js/bridge-production.js?v=20261113054758"></script>
 <script>
 /* Safety net: if the app can't start (e.g. a half-updated page), say so and offer a clean reload
    instead of leaving a broken screen. */

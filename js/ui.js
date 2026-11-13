@@ -302,7 +302,7 @@ const UI = {
       if (act === 'm' || act === 's') {
         App.pushUndo();
         t[act === 'm' ? 'mute' : 'solo'] = !t[act === 'm' ? 'mute' : 'solo'];
-        Engine.tracksAll(); this.renderTracks(); this.renderMixer(); App.changed();
+        Engine.tracksAll(); this.renderTracks(); this.renderMixer(); this.renderRollBar(); App.changed();
         return;
       }
       if (act === 'del') {
@@ -423,14 +423,15 @@ const UI = {
     if (!t || (this.view !== 'beat' && this.view !== 'roll')) return;
     this.showView(t.type === 'drum' ? 'beat' : 'roll');
   },
-  selectTrack(id) {
+  selectTrack(id, opts = {}) {
     App.sel.track = id;
     if (App.sel.role) { App.sel.role = null; this.renderStyle(); }
     const t = App.track(id);
     if (t.type === 'drum') { this.beatTrackId = id; this.renderBeat(); }
     Roll.sel.clear();
     $$('.track-item').forEach((e) => e.classList.toggle('sel', e.dataset.id === id));
-    this.renderRollBar(); this.renderInst(); this.renderKeyboard(); Roll.scrollToNotes();
+    this.renderRollBar(); this.renderInst(); this.renderKeyboard();
+    if (opts.keepScroll) Roll.draw(); else Roll.scrollToNotes();
   },
   /* Selection from a click: move the highlight without rebuilding the list, so the
      elements survive for a double-click rename. */
@@ -704,10 +705,24 @@ const UI = {
 
   /* ---------- piano roll toolbar ---------- */
   renderRollBar() {
+    // Track chips (the layered roll): write into one track, show or hide the others.
     const synths = App.song.tracks.filter((t) => t.type === 'synth');
-    const cur = App.track();
-    $('#rollTrack').innerHTML = (cur && cur.type === 'drum' ? '<option value="">— select an instrument —</option>' : '') +
-      synths.map((t) => `<option value="${t.id}" ${cur && t.id === cur.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+    const drums = App.song.tracks.filter((t) => t.type === 'drum');
+    const cur = Roll.track(), hidden = Roll.hiddenSet();
+    const chip = (id, name, color, state, muted, nameTip, eyeTip) =>
+      `<span class="rchip ${state}${muted ? ' muted' : ''}" data-id="${id}" style="--c:${color}">` +
+      `<button class="rc-name" title="${esc(nameTip)}">${state === 'writing' ? '✎ ' : ''}${esc(name)}</button>` +
+      (eyeTip ? `<button class="rc-eye" title="${esc(eyeTip)}" aria-label="${esc(eyeTip)}">${state === 'hidden' ? '○' : '◉'}</button>` : '') + '</span>';
+    let h = synths.map((t) => {
+      const writing = cur && t.id === cur.id, off = !writing && hidden.has(t.id);
+      return chip(t.id, t.name, t.color, writing ? 'writing' : off ? 'hidden' : 'shown', t.mute,
+        (writing ? `Writing into ${t.name}` : `Write into ${t.name}`) + (t.mute ? ' (muted)' : ''),
+        writing ? '' : off ? `Show ${t.name}` : `Hide ${t.name}`);
+    }).join('');
+    if (drums.length) h += chip('drums', 'Drums', drums[0].color, hidden.has('drums') ? 'hidden' : 'shown', false,
+      hidden.has('drums') ? 'Show the drum strip above the roll' : 'Hide the drum strip', '');
+    if (synths.length > 1) h += '<button class="rc-all" data-all="show" title="Show every track">All</button><button class="rc-all" data-all="hide" title="Hide every track except the one you write into">None</button>';
+    $('#rollChips').innerHTML = h || '<span class="muted">No instrument tracks — add one from the sidebar</span>';
   },
 
   /* ---------- playthrough: a level's patterns in a fixed order, for plain audio/MIDI export ----------

@@ -51,7 +51,8 @@ Setup and import settings: [unity/README.md](unity/README.md).
 ## What's in it
 
 - **Beat** – 10-voice drum step sequencer (kick, snare, clap, hats, toms, rim, cowbell, crash), 5 synthesized kits, per-pad level/tune/decay/pan, load your own samples onto any pad, velocity accents, 10 preset beat loops.
-- **Piano Roll** – draw, move, resize, box-select, alt-drag duplicate, transpose, quantize. Key/scale highlighting, ghost notes from other tracks, and a loop generator (chords, basslines, arps, riffs) that follows your key and a chosen chord progression.
+- **Several instruments at once** (Piano Roll) — the track chips above the roll pick which instrument you write into (✎) and which others show in their own colours (the eye button; All / None). Click another track's note to write into that track. A drum strip on top shows where the hits fall; click it to open the Beat grid. What shows is remembered per level in your browser; it never changes what you hear.
+- **Piano Roll** – draw, move, resize, box-select, alt-drag duplicate, transpose, quantize. Key/scale highlighting and a loop generator (chords, basslines, arps, riffs) that follows your key and a chosen chord progression.
 - **Instruments** – 11 presets (piano, e-piano, organ, bass, sub, pad, strings, lead, pluck, bell, brass) on a 2-oscillator subtractive synth with ADSR, filter + filter envelope, vibrato.
 - **Mixer & FX** – per track: volume, pan, drive, tone filter, reverb and delay sends, mute/solo. Master: 3-band EQ, compressor, reverb (size/return), tempo-synced delay, limiter.
 - **Playing & recording** – on-screen keyboard, computer keyboard (A W S E D F T G Y H U J K O L P, Z/X octave), Web MIDI keyboards. Press ● to record into the playing pattern (optional quantize). Metronome and swing.

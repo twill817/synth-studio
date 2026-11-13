@@ -22,7 +22,7 @@ The current app is organised around tools (Beat, Piano Roll, Arrange, Adaptive, 
 5. **The game decides what plays; Synth previews it.** Game events (RunStarted, ClockLow, RunOver…) are defined in Synth, simulated on the map, and exported for Unity's MusicCues to read. The MusicCues table stays only for overrides.
 6. **A library of patterns.** Every segment, sting and melody lives in one game-wide Library. Placing one in a level links it; "Make a version for this level" splits off a level's own copy. Themes merge into the Library as melodies.
 7. **Layout B.** The level's map stays on screen as a strip; clicking a segment or sting edits it underneath. Simulate panel on the right of the map.
-8. **One instrument at a time** in the editor for now; several at once is a later step.
+8. **Several instruments in one piano roll** (step 5): pick which tracks show; you write into one at a time.
 9. **Nothing is removed silently.** Every current control is kept or moved, and the move is written down below.
 
 ## Hierarchy
@@ -53,9 +53,10 @@ Each step ships on its own, keeps the app working, and is checked against the mu
    - Layers are in Mixer & FX; a track's layer shows in its sidebar tooltip.
 4. **Game events.** Events defined in Synth, fired from the Simulate panel, exported in the manifest; Unity MusicCues reads them, with its table for overrides only.
    - ✅ **4a, Synth** (done 2026-11-12; code in `js/events.js`, sting behaviours in `Seq.request` / `tick`). Game Style → Game events; Simulate's event buttons and *Edit events…*; sting settings (When fired, Starts, music level) in the pattern bar; manifest version 2 with `cues` and sting `play/then/at/duck`; Claude's `set_events`, `set_cues`, `set_sting`. Until 4b, the Unity player ignores the new manifest fields, so a sting set to *over* / *then go to* still plays *instead* in the game.
-   - **4b, Unity** (in progress): `unity/AdaptiveMusicPlayer.cs` (PlaySting follows the sting's play/then/at/duck; over the music turns only the loop down; test panel lists events) and `unity/MusicCues.cs` (table rows override the exported cues). Compile-checked against Unity 6000.6.7f1's DLLs and copied into DeadDerby's `Assets/_Project/Audio/Music/`. Play-tested in ProvingTrench (2026-11-12): compiles in Unity, reads the old version 1 export, all seven events from the scene's table work, and *over the music* (loop turns down, comes back) and *then go to* work when set on the sting; Console clean. Still to do: add DeadDerby's events in Synth, export (version 2) into DeadDerby, and retest from the exported cues (needs the Synth page connected).
+   - ✅ **4b, Unity** (done 2026-11-12): `unity/AdaptiveMusicPlayer.cs` (PlaySting follows the sting's play/then/at/duck; over the music turns only the loop down; test panel lists events) and `unity/MusicCues.cs` (table rows override the exported cues). Compile-checked against Unity 6000.6.7f1's DLLs and copied into DeadDerby's `Assets/_Project/Audio/Music/`. Play-tested in ProvingTrench (2026-11-12): compiles in Unity, reads the old version 1 export, all seven events from the scene's table work, and *over the music* (loop turns down, comes back) and *then go to* work when set on the sting; Console clean. DeadDerby's seven events and cues are in the Synth project; the version 2 export is in DeadDerby and every event runs from it (`(export)` in the Console) when the scene's table is empty. The scene's MusicCues table was then emptied (ProvingTrench saved), so the export drives the music; the game's own RunWaiting at scene start runs from the export.
    - Unity work: play a sting *over* the music without stopping the loop (with ducking). "Instead, then back" is PlaySting; "End the music" is EndWithSting.
-5. **Later:** several instruments shown at once; maybe weave a theme into whatever is playing instead of a separate sting.
+5. ✅ **Several instruments at once: the layered roll** (done 2026-11-12, as designed below; code in `js/roll.js` — hiddenSet / onChip / hitOther / drawDrums — and `UI.renderRollBar`). The piano roll shows the tracks you pick in their own colours, with a drum strip on top. Clicking a chip or another track's note keeps the roll's scroll position (the sidebar still centres on the track's notes).
+6. **Later:** maybe weave a theme into whatever is playing instead of a separate sting; maybe a stacked-lanes overview of the whole pattern.
 
 ## Step 2 design: the library
 
@@ -200,6 +201,43 @@ The manifest gains `cues` (event → actions, same names as MusicCues) and, per 
 - **4a, Synth only**: events, cues, sting behaviours, Simulate, export fields, Claude tools. Nothing changes in the game.
 - **4b, Unity**: the two scripts, then export into DeadDerby (asking first), and a Play-mode test of each event in ProvingTrench.
 
+## Step 5 design: the layered roll
+
+### Today
+The piano roll edits one synth track, picked in the Track menu or the sidebar. *Ghost notes* (on by default) draws every other synth track's notes faintly, all at once, with no way to choose. The drums are only visible in the Beat grid.
+
+### Track chips (replace the Track menu and Ghost notes)
+A row of chips at the start of the piano roll's toolbar, one per synth track in the level, in the level's track order and colours:
+- **Writing** (✎, full colour): the track new notes go into. Click a chip to write into that track; it's shown automatically.
+- **Shown** (filled, dimmer): its notes are drawn in its colour, so you see how the parts fit.
+- **Hidden** (dashed outline): not drawn.
+- Each chip has an eye button to show or hide it. **All** and **None** at the end show or hide every other track at once (*None* keeps the writing track).
+- Muted tracks (sidebar M) show a struck-through name; solo isn't involved — the chips change what you see, never what you hear.
+- Which tracks are shown is remembered per level in the browser (not in the project file), so opening a level shows what you last looked at. New levels and new tracks start shown, as Ghost notes did.
+
+### Notes of other tracks
+- Drawn at about half strength in their own colour with a thin outline, under the writing track's notes, so overlaps stay readable.
+- **Click one** to switch writing to its track and select that note; nothing moves on that first click. Drag, resize, delete, box select and Del work on the writing track only, so nothing on another track changes by accident.
+- Hover shows the track's name and the note.
+
+### Drum strip
+- A thin strip pinned above the grid (it scrolls sideways with it): one row per drum track, a tick per hit, stronger for louder hits. It follows Bars and Zoom and shows the playhead.
+- A **Drums** chip shows or hides it. Clicking the strip opens the Beat grid on that drum track.
+- Read-only: drums are still edited in the Beat grid.
+
+### What stays
+Piano keys down the left, Snap, Length, Velocity, Key, Scale, Bars, Zoom, Loop generator, Progression, Insert loop, Clear notes (writing track only), Transpose, Quantize, Quantize recording, the Themes bar, the library bar, and the on-screen / computer / MIDI keyboard (they play and record into the writing track). The sidebar's track list is unchanged: selecting a track there still makes it the writing track.
+
+### Moves (must-keep)
+- *Track* menu → the chips (click = write into it).
+- *Ghost notes* → the eye buttons with All / None.
+
+### Claude tools
+No changes: tools name the track they write to. `get_pattern` is unchanged.
+
+### Not in this step
+Editing drums inside the roll, and the stacked-lanes overview (options C and B in the step 5 sketch).
+
 ## Must-keep list
 
 Where every current control ends up. Tick each when its step ships.
@@ -234,7 +272,7 @@ Where every current control ends up. Tick each when its step ships.
 
 ### Piano roll
 - Piano keys down the left of the grid
-- Track, Snap, Length, Velocity, Key, Scale, Bars, Ghost notes, Zoom
+- Track, Snap, Length, Velocity, Key, Scale, Bars, Ghost notes, Zoom (✅ step 5: Track → track chips; Ghost notes → each chip's eye button, All / None)
 - Loop generator, Progression, Insert loop, Clear notes
 - Transpose −1/+1, Quantize, Quantize recording
 - Add, move, resize, right-click delete, Shift-drag box select, Del

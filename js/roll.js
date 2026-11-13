@@ -15,7 +15,8 @@ const Roll = {
     $('#loopProg').innerHTML = Object.keys(PROGRESSIONS).map((k) => `<option>${k}</option>`).join('');
     $('#rollVel').value = App.vel;
 
-    $('#rollTrack').onchange = (e) => { if (e.target.value) UI.selectTrack(e.target.value); };
+    $('#rollChips').onclick = (e) => this.onChip(e);
+    $('#rollDrums').onclick = (e) => this.openDrums(e);
     $('#rollSnap').onchange = (e) => (App.snap = +e.target.value);
     $('#rollLen').onchange = (e) => (App.noteLen = +e.target.value);
     $('#rollVel').oninput = (e) => {
@@ -25,7 +26,6 @@ const Roll = {
     $('#rollVel').onpointerdown = () => { if (this.sel.size) App.pushUndo(); };
     $('#songKey').onchange = (e) => { App.pushUndo(); App.song.key = +e.target.value; this.draw(); UI.renderKeyboard(); App.changed(); };
     $('#songScale').onchange = (e) => { App.pushUndo(); App.song.scale = e.target.value; this.draw(); UI.renderKeyboard(); App.changed(); };
-    $('#rollGhost').onchange = () => this.draw();
     $('#rollZoom').oninput = (e) => { this.zoom = +e.target.value; this.draw(); };
     $('#recQuant').onchange = (e) => (App.quantize = e.target.checked);
     $('#btnLoopInsert').onclick = () => this.insertLoop();
@@ -116,6 +116,62 @@ const Roll = {
     if (!themes.length && !ns.length) $('#themeBar').hidden = true; // nothing to do with themes yet
   },
 
+  /* ---------- which tracks show (step 5: the layered roll) ----------
+     Hidden track ids per level, kept in this browser only ('drums' = the drum strip). */
+  hiddenKey: 'synthstudio.rollHidden',
+  hiddenAll() {
+    if (!this._hidden) { try { this._hidden = JSON.parse(localStorage.getItem(this.hiddenKey)) || {}; } catch (e) { this._hidden = {}; } }
+    return this._hidden;
+  },
+  hiddenSet() { const a = this.hiddenAll()[App.song.id]; return new Set(Array.isArray(a) ? a : []); },
+  setHidden(set) {
+    const all = this.hiddenAll();
+    const ids = new Set(App.song.tracks.map((t) => t.id).concat('drums'));
+    const keep = [...set].filter((id) => ids.has(id));
+    if (keep.length) all[App.song.id] = keep; else delete all[App.song.id];
+    try { localStorage.setItem(this.hiddenKey, JSON.stringify(all)); } catch (e) { /* storage blocked */ }
+    UI.renderRollBar(); this.draw();
+  },
+  isShown(id) { return !this.hiddenSet().has(id); },
+  /* Other synth tracks drawn in the roll (the writing track is always drawn). */
+  shownOthers() {
+    const t = this.track(), h = this.hiddenSet();
+    return App.song.tracks.filter((o) => o.type === 'synth' && (!t || o.id !== t.id) && !h.has(o.id));
+  },
+  onChip(e) {
+    const b = e.target.closest('button'); if (!b) return;
+    const h = this.hiddenSet();
+    const synths = App.song.tracks.filter((t) => t.type === 'synth');
+    const cur = this.track();
+    if (b.dataset.all === 'show') { synths.forEach((t) => h.delete(t.id)); h.delete('drums'); return this.setHidden(h); }
+    if (b.dataset.all === 'hide') { synths.forEach((t) => { if (!cur || t.id !== cur.id) h.add(t.id); }); return this.setHidden(h); }
+    const id = b.closest('[data-id]').dataset.id;
+    if (id === 'drums') { h.has('drums') ? h.delete('drums') : h.add('drums'); return this.setHidden(h); }
+    if (b.classList.contains('rc-eye')) { h.has(id) ? h.delete(id) : h.add(id); return this.setHidden(h); }
+    if (h.has(id)) { h.delete(id); this.setHidden(h); }
+    if (!cur || cur.id !== id) UI.selectTrack(id, { keepScroll: true });
+  },
+  openDrums(e) {
+    const drums = App.song.tracks.filter((t) => t.type === 'drum');
+    if (!drums.length) return;
+    const r = e.target.getBoundingClientRect();
+    const t = drums[clamp(Math.floor((e.clientY - r.top) / this.drumRowH), 0, drums.length - 1)];
+    UI.selectTrack(t.id); UI.showView('beat');
+  },
+  drumRowH: 9,
+  /* A note of another shown track under the pointer (topmost first). */
+  hitOther(c) {
+    const pat = App.pattern(), steps = pat.bars * 16, others = this.shownOthers();
+    for (let k = others.length - 1; k >= 0; k--) {
+      const ns = pat.notes[others[k].id] || [];
+      for (let i = ns.length - 1; i >= 0; i--) {
+        const n = ns[i];
+        if (n.s < steps && n.p === c.p && c.step >= n.s && c.step <= n.s + n.l) return { t: others[k], n };
+      }
+    }
+    return null;
+  },
+
   track() { const t = App.track(); return t && t.type === 'synth' ? t : null; },
   notes() { const t = this.track(); if (!t) return null; const p = App.pattern(); ensurePattern(p); return p.notes[t.id]; },
 
@@ -143,9 +199,17 @@ const Roll = {
   },
 
   onDown(e) {
+    const c = this.toCell(e);
+    if (!e.shiftKey && !(this.track() && this.hit(c))) {
+      // a note of another shown track: write into that track and select the note; nothing moves
+      const o = this.hitOther(c);
+      if (o) {
+        if (e.button === 0) { UI.selectTrack(o.t.id, { keepScroll: true }); this.sel = new Set([o.n]); App.vel = o.n.v; $('#rollVel').value = o.n.v; this.draw(); }
+        return;
+      }
+    }
     const ns = this.notes();
     if (!ns) return;
-    const c = this.toCell(e);
     const h = this.hit(c);
     const steps = App.pattern().bars * 16;
     if (e.button === 2) {
@@ -180,7 +244,10 @@ const Roll = {
     const c = this.toCell(e);
     if (!this.drag) {
       const h = this.track() && this.hit(c);
-      this.grid.style.cursor = h ? (h.edge ? 'ew-resize' : 'move') : 'crosshair';
+      const o = !h && this.hitOther(c);
+      this.grid.style.cursor = h ? (h.edge ? 'ew-resize' : 'move') : o ? 'pointer' : 'crosshair';
+      const tip = o ? `${o.t.name} · ${noteName(o.n.p)} — click to write into ${o.t.name}` : '';
+      if (this.grid.title !== tip) this.grid.title = tip;
       return;
     }
     const d = this.drag, q = App.snap, steps = App.pattern().bars * 16;
@@ -261,9 +328,39 @@ const Roll = {
     this.wrap.scrollTop = (this.hi - mid) * this.rowH - this.wrap.clientHeight / 2;
   },
 
+  /* The drum strip: one row per drum track, a tick per hit (stronger = louder). Read-only. */
+  drawDrums(pat, steps, W, size, pos) {
+    const drums = App.song.tracks.filter((t) => t.type === 'drum');
+    const row = $('#rollDrumRow');
+    const show = drums.length > 0 && this.isShown('drums');
+    row.hidden = !show;
+    if (!show) return;
+    const rh = this.drumRowH, H = drums.length * rh + 2;
+    const k = size($('#rollDrumKeys'), this.keyW, H);
+    k.fillStyle = '#1a1d23'; k.fillRect(0, 0, this.keyW, H);
+    k.fillStyle = '#8a91a3'; k.font = '9px system-ui';
+    drums.forEach((t, i) => k.fillText(drums.length > 1 ? t.name.slice(0, 9) : 'Drums', 4, i * rh + rh - 1));
+    const g = size($('#rollDrums'), W, H);
+    g.fillStyle = '#16181d'; g.fillRect(0, 0, W, H);
+    for (let s = 0; s <= steps; s += 4) { g.fillStyle = s % 16 === 0 ? '#5b6378' : '#2a2f3a'; g.fillRect(s * this.cellW, 0, s % 16 === 0 ? 2 : 1, H); }
+    drums.forEach((t, i) => {
+      const voices = pat.drums[t.id] || {};
+      for (let s = 0; s < steps; s++) {
+        let v = 0;
+        for (const id in voices) v = Math.max(v, voices[id][s] || 0);
+        if (!v) continue;
+        g.globalAlpha = 0.35 + 0.65 * Math.min(1, v);
+        g.fillStyle = t.color;
+        g.fillRect(s * this.cellW + 2, i * rh + 2, Math.max(2, this.cellW - 4), rh - 3);
+      }
+      g.globalAlpha = 1;
+    });
+    if (pos && pos.pat === App.sel.pattern) { g.fillStyle = '#69db7c'; g.fillRect(pos.local * this.cellW, 0, 2, H); }
+  },
+
   draw(pos) {
     if (!this.grid || UI.view !== 'roll') return;
-    if (!pos) this.renderThemeBar(); // skip during playback frames; nothing there changes
+    if (!pos) { this.renderThemeBar(); UI.renderRollBar(); } // skip during playback frames; nothing there changes
     const t = this.track();
     const pat = App.pattern();
     const steps = pat.bars * 16;
@@ -310,19 +407,23 @@ const Roll = {
       g.fillRect(s * this.cellW, 0, s % 16 === 0 ? 2 : 1, H);
     }
 
+    this.drawDrums(pat, steps, W, size, pos);
+
+    // other shown tracks, in their own colours, under the writing track
+    this.shownOthers().forEach((o) => {
+      g.fillStyle = o.color + '59'; g.strokeStyle = o.color + 'cc'; g.lineWidth = 1;
+      (pat.notes[o.id] || []).forEach((n) => {
+        if (n.s >= steps) return;
+        const x = n.s * this.cellW, y = (this.hi - n.p) * this.rowH, w = Math.max(3, Math.min(n.l, steps - n.s) * this.cellW);
+        g.fillRect(x + 1, y + 2, w - 2, this.rowH - 4);
+        g.strokeRect(x + 1.5, y + 2.5, w - 3, this.rowH - 5);
+      });
+    });
+
     if (!t) {
       g.fillStyle = '#8a91a3'; g.font = '14px system-ui';
-      g.fillText('Select an instrument track (sidebar or the Track menu above) to write notes.', 20 + this.wrap.scrollLeft, this.wrap.scrollTop + 40);
+      g.fillText('Pick a track to write into: a chip above, a note in the roll, or the sidebar.', 20 + this.wrap.scrollLeft, this.wrap.scrollTop + 40);
       return;
-    }
-
-    // ghost notes from other synth tracks
-    if ($('#rollGhost').checked) {
-      App.song.tracks.forEach((o) => {
-        if (o.type !== 'synth' || o.id === t.id) return;
-        g.fillStyle = o.color + '30';
-        (pat.notes[o.id] || []).forEach((n) => { if (n.s < steps) g.fillRect(n.s * this.cellW + 1, (this.hi - n.p) * this.rowH + 2, n.l * this.cellW - 2, this.rowH - 4); });
-      });
     }
 
     // notes
