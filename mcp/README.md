@@ -40,7 +40,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 |---|---|
 | `status` | Is a Synth Studio page connected, and which game/score is open |
 | `get_project` | Game style (roles, mix), themes, flavors, every score's segments/stings/layers |
-| `get_score` | One level in detail: tracks, layers, patterns, links to themes, arrangement |
+| `get_score` | One level in detail: tracks, layers, patterns, links to themes, export playthrough |
 | `get_pattern` | A pattern's notes (`1.1.1 A4 1/4 v100`) and drum lines (`X...x...|…`) |
 | **Composing** | |
 | `write_notes` | Melody / bass / chords in readable notation (`1.1.1 [A3 C4 E4] 1/2 v90`, dotted `1/4.`, triplet `1/8t`) |
@@ -51,7 +51,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | **Structure** | |
 | `create_score` / `set_score` | New level (from the style, or a copy) / key, tempo, swing, when segment changes land |
 | `add_pattern` / `set_pattern` / `delete_pattern` | Segments and stings, length, entry stings |
-| `set_arrangement` | Song order |
+| `set_arrangement` | Export playthrough (pattern order for plain audio/MIDI export) |
 | `set_layers` | Intensity layers and which tracks are on each |
 | `add_track` / `set_track` / `remove_track` | Tracks, mixer settings, mute/solo, layer |
 | **Sound & consistency** | |

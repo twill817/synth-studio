@@ -78,7 +78,7 @@ if (before !== after) { failures++; console.log('✗ a failed call changed the s
 
 console.log('\n— result —');
 const sc = JSON.parse((await raw('get_score', { score: S })).text);
-console.log(JSON.stringify({ key: sc.key, bpm: sc.bpm, mix: sc.mix, layers: sc.intensityLayers, patterns: sc.patterns.map((p) => `${p.name}:${p.type}${p.entrySting ? '←' + p.entrySting : ''}`), song: sc.songArrangement }, null, 1));
+console.log(JSON.stringify({ key: sc.key, bpm: sc.bpm, mix: sc.mix, layers: sc.intensityLayers, patterns: sc.patterns.map((p) => `${p.name}:${p.type}${p.entrySting ? '←' + p.entrySting : ''}`), playthrough: sc.playthrough }, null, 1));
 const sp = JSON.parse((await raw('get_pattern', { score: S, pattern: 'Spotted', track: 'Keys' })).text);
 console.log('Spotted/Keys:', sp.tracks[0].notes.join(' · '));
 const proj = JSON.parse((await raw('get_project')).text);

@@ -194,7 +194,7 @@ const BridgeAPI = {
         drumHits: Object.fromEntries(s.tracks.filter((t) => t.type === 'drum').map((t) => [t.name, Object.values(p.drums[t.id] || {}).reduce((a, r) => a + r.filter((v) => v > 0).length, 0)])),
         linkedThemes: Object.fromEntries(Object.entries(p.origins || {}).map(([tid, o]) => [tname(tid), ((Themes.find(o.theme) || {}).name || '?') + (o.speed !== 1 ? ` (${o.speed === 2 ? 'half' : 'double'} speed)` : '') + (o.oct ? ` (${o.oct > 0 ? '+' : ''}${o.oct} oct)` : '')])),
       })),
-      songArrangement: s.arrangement.map((i) => (s.patterns[i] || {}).name).filter(Boolean),
+      playthrough: s.arrangement.map((i) => (s.patterns[i] || {}).name).filter(Boolean),
       adaptive: { changeSegmentOn: { beat: 'next beat', bar: 'next bar', end: 'end of segment' }[s.adaptive.quant] },
     };
   },

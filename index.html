@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Synth Studio</title>
 <!-- Build number: stamped by tools/pre-commit into this tag, every ?v= below, and version.txt. -->
-<meta name="build" content="20261111165506">
+<meta name="build" content="20261113004313">
 <script>
 /* Stale-page check. Browsers may keep this page cached for a few minutes after an update.
    version.txt is always fetched fresh; if it names a newer build than this page, reload once
@@ -21,7 +21,7 @@
   }).catch(function () { /* opened as a file, or offline: nothing to check */ });
 })();
 </script>
-<link rel="stylesheet" href="styles.css?v=20261111165506">
+<link rel="stylesheet" href="styles.css?v=20261113004313">
 </head>
 <body>
 <header id="topbar">
@@ -33,10 +33,8 @@
     <button id="btnRec" class="tbtn rec" title="Record from keyboard / MIDI into the playing pattern (R)">●</button>
     <div class="seg" id="modeSeg">
       <button data-mode="pattern" class="on" title="Loop the selected pattern">Pattern</button>
-      <button data-mode="song" title="Play the arrangement">Song</button>
       <button data-mode="adaptive" title="Play like the game: loop a segment, switch segments, change intensity (Adaptive tab)">Adaptive</button>
     </div>
-    <button id="btnLoop" class="tbtn small on" title="Loop the song in Song mode">⟲</button>
     <div class="pos" id="posDisplay">1.1.1</div>
   </div>
   <div class="tempo">
@@ -60,11 +58,11 @@
 <main>
   <aside id="sidebar">
     <section>
-      <h3>Scores</h3>
+      <h3>Levels</h3>
       <div id="scoreList"></div>
       <div class="row gap">
-        <button id="btnAddScore" title="New score using the game style's roles and defaults">+ New</button>
-        <button id="btnDupScore">Duplicate</button>
+        <button id="btnAddScore" title="New level using the game style's roles and defaults">+ New level</button>
+        <button id="btnDupScore" title="Copy this level, with its patterns and custom sounds">Duplicate</button>
       </div>
     </section>
     <section>
@@ -90,7 +88,6 @@
     <nav class="tabs" id="tabs">
       <button data-view="beat" class="on">Beat</button>
       <button data-view="roll">Piano Roll</button>
-      <button data-view="arrange">Arrange</button>
       <button data-view="adaptive">Adaptive</button>
       <button data-view="mixer">Mixer &amp; FX</button>
       <button data-view="style">Game Style</button>
@@ -142,7 +139,7 @@
         <span class="tb-label" title="The game's recurring melodies and progressions — Game Style tab lists them all">Themes</span>
         <span id="themeInsert" class="row gap wrap">
           <select id="themeSel" aria-label="Theme"></select>
-          <label title="Move the theme into this score's key and scale">
+          <label title="Move the theme into this level's key and scale">
             <input type="checkbox" id="themeFit" checked> Fit to key</label>
           <label>Octave <select id="themeOct"><option value="-2">−2</option><option value="-1">−1</option><option value="0" selected>0</option><option value="1">+1</option><option value="2">+2</option></select></label>
           <label>Speed <select id="themeSpeed"><option value="0.5">Double speed</option><option value="1" selected>Normal</option><option value="2">Half speed</option></select></label>
@@ -163,17 +160,6 @@
           <canvas id="rollGrid"></canvas>
         </div>
       </div>
-    </div>
-
-    <div class="view" id="view-arrange">
-      <div class="toolbar">
-        <span>Click a pattern to append it to the song. Drag blocks to reorder; right-click or ✕ removes. Double-click a block or ✎ to rename.</span>
-        <button id="btnArrClear" class="danger">Clear song</button>
-      </div>
-      <h4 class="subhead">Patterns</h4>
-      <div id="arrPalette" class="arr-palette"></div>
-      <h4 class="subhead">Song <span id="arrLen" class="muted"></span></h4>
-      <div id="arrStrip" class="arr-strip"></div>
     </div>
 
     <div class="view" id="view-adaptive">
@@ -221,8 +207,8 @@
     </fieldset>
     <fieldset id="expUnity">
       <legend>Unity package</legend>
-      <label><input type="radio" name="uscope" value="score" checked> This score</label>
-      <label><input type="radio" name="uscope" value="all"> All scores in the game</label>
+      <label><input type="radio" name="uscope" value="score" checked> This level</label>
+      <label><input type="radio" name="uscope" value="all"> All levels in the game</label>
       <label>Loudness <select id="uLufs">
         <option value="-14">−14 LUFS (loud, mobile)</option>
         <option value="-16" selected>−16 LUFS (typical game music)</option>
@@ -235,7 +221,18 @@
     </fieldset>
     <fieldset id="expSource">
       <legend>What to export</legend>
-      <label><input type="radio" name="src" value="song" checked> Whole song (arrangement)</label>
+      <label><input type="radio" name="src" value="song" checked> A playthrough — patterns in the order below</label>
+      <div id="expPlaythrough" class="playthrough">
+        <p class="muted">A straight run through this level's music, for a trailer, a soundtrack file or a listen away from the game. Click a pattern to add it; drag blocks to reorder; right-click or ✕ removes.</p>
+        <div id="arrPalette" class="arr-palette"></div>
+        <div class="row gap"><b>Order</b> <span id="arrLen" class="muted"></span></div>
+        <div id="arrStrip" class="arr-strip"></div>
+        <div class="row gap">
+          <button type="button" id="btnArrPlay" title="Hear the playthrough">▶ Play it</button>
+          <label><input type="checkbox" id="arrLoop"> Loop</label>
+          <button type="button" id="btnArrClear" class="danger">Clear</button>
+        </div>
+      </div>
       <label><input type="radio" name="src" value="pattern"> Selected pattern × <input id="expRepeats" type="number" min="1" max="64" value="4" style="width:4em"></label>
       <label class="exp-audio">Sample rate <select id="expRate"><option>44100</option><option>48000</option></select></label>
       <label class="exp-audio">Reverb tail <input id="expTail" type="number" min="0" max="10" step="0.5" value="2" style="width:4em"> s</label>
@@ -251,17 +248,17 @@
 <input type="file" id="fileOpen" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
 <input type="file" id="fileSample" accept="audio/*" hidden>
 
-<script src="js/presets.js?v=20261111165506"></script>
-<script src="js/audio.js?v=20261111165506"></script>
-<script src="js/export.js?v=20261111165506"></script>
-<script src="js/unity.js?v=20261111165506"></script>
-<script src="js/app.js?v=20261111165506"></script>
-<script src="js/themes.js?v=20261111165506"></script>
-<script src="js/ui.js?v=20261111165506"></script>
-<script src="js/roll.js?v=20261111165506"></script>
-<script src="js/bridge.js?v=20261111165506"></script>
-<script src="js/bridge-edit.js?v=20261111165506"></script>
-<script src="js/bridge-production.js?v=20261111165506"></script>
+<script src="js/presets.js?v=20261113004313"></script>
+<script src="js/audio.js?v=20261113004313"></script>
+<script src="js/export.js?v=20261113004313"></script>
+<script src="js/unity.js?v=20261113004313"></script>
+<script src="js/app.js?v=20261113004313"></script>
+<script src="js/themes.js?v=20261113004313"></script>
+<script src="js/ui.js?v=20261113004313"></script>
+<script src="js/roll.js?v=20261113004313"></script>
+<script src="js/bridge.js?v=20261113004313"></script>
+<script src="js/bridge-edit.js?v=20261113004313"></script>
+<script src="js/bridge-production.js?v=20261113004313"></script>
 <script>
 /* Safety net: if the app can't start (e.g. a half-updated page), say so and offer a clean reload
    instead of leaving a broken screen. */

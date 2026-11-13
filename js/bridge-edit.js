@@ -363,7 +363,7 @@ Object.assign(BridgeAPI, {
       s.arrangement = s.arrangement.filter((i) => i !== k).map((i) => (i > k ? i - 1 : i));
       s.patterns.forEach((q) => { if (q.entrySting === p.id) q.entrySting = null; });
       if (App.sel.pattern >= s.patterns.length) App.sel.pattern = s.patterns.length - 1;
-      return `Deleted “${p.name}” from ${s.name}${uses ? ` (and ${uses} block(s) from the song arrangement)` : ''}.`;
+      return `Deleted “${p.name}” from ${s.name}${uses ? ` (and ${uses} block(s) from the export playthrough)` : ''}.`;
     });
   },
 
@@ -372,8 +372,8 @@ Object.assign(BridgeAPI, {
       const idx = patterns.map((r) => s.patterns.indexOf(Ref.pattern(s, r)));
       s.arrangement = idx;
       const bars = idx.reduce((a, i) => a + s.patterns[i].bars, 0);
-      return `${s.name} song order: ${idx.map((i) => s.patterns[i].name).join(' → ')} (${bars} bars, ${Math.round((bars * 4 * 60) / s.bpm)} s).`;
-    }, { view: 'arrange' });
+      return `${s.name} playthrough (for plain audio/MIDI export, Export › A playthrough): ${idx.map((i) => s.patterns[i].name).join(' → ')} (${bars} bars, ${Math.round((bars * 4 * 60) / s.bpm)} s).`;
+    });
   },
 
   setLayers({ score, layers, assign }) {

@@ -1,4 +1,4 @@
-/* UI: top bar, sidebar, beat grid, arrangement, mixer, instrument panel, keyboard, export dialog, shortcuts. */
+/* UI: top bar, sidebar, beat grid, playthrough (export), mixer, instrument panel, keyboard, export dialog, shortcuts. */
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -21,7 +21,7 @@ function toast(msg, ms = 2200, action) {
     b.onclick = () => { t.remove(); action.fn(); };
     t.appendChild(b);
   }
-  document.body.appendChild(t);
+  (document.querySelector('dialog[open]') || document.body).appendChild(t); // above an open dialog, not behind it
   setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.remove(), 400); }, ms);
 }
 const undoToast = (msg) => toast(msg, 6000, { label: 'Undo', fn: () => App.undo() });
@@ -112,7 +112,6 @@ const UI = {
     this.initMixer();
     this.initStyle();
     this.initAdaptive();
-    $('#btnLoop').hidden = App.mode !== 'song';
     this.initInst();
     this.initKeyboard();
     this.initExport();
@@ -162,7 +161,6 @@ const UI = {
     $('#btnStop').onclick = () => { Seq.stop(); Live.allOff(); };
     $('#btnRec').onclick = () => this.toggleRec();
     $$('#modeSeg button').forEach((b) => (b.onclick = () => this.setMode(b.dataset.mode)));
-    $('#btnLoop').onclick = (e) => { App.loopSong = !App.loopSong; e.target.classList.toggle('on', App.loopSong); };
     $('#btnMetro').onclick = (e) => { App.metro = !App.metro; e.target.classList.toggle('on', App.metro); };
     $('#btnClaude').onclick = () => Bridge.toggle();
     $('#btnUndo').onclick = () => App.undo();
@@ -186,7 +184,6 @@ const UI = {
     if (wasPlaying) Seq.stop();
     App.mode = m;
     $$('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
-    $('#btnLoop').hidden = m !== 'song'; // looping the song only means something in Song mode
     Engine.layers();                     // layer fades apply only in Adaptive mode
     this.renderAdaptive();
     if (wasPlaying && restart) Seq.start();
@@ -203,6 +200,8 @@ const UI = {
     const fade = $('#adpFade');
     if (fade) fade.hidden = !Seq.playing;          // fading only means something while playing
     if (!Seq.playing) this.markAdaptive();
+    const pt = $('#btnArrPlay');
+    if (pt) pt.textContent = Seq.playing && App.mode === 'song' ? '■ Stop' : '▶ Play it';
     if (!Seq.playing) {
       $('#posDisplay').textContent = '1.1.1';
       this.markBeatStep(-1);
@@ -302,7 +301,7 @@ const UI = {
         return;
       }
       if (act === 'del') {
-        if (App.song.tracks.length <= 1) return toast('A song needs at least one track');
+        if (App.song.tracks.length <= 1) return toast('A level needs at least one track');
         App.pushUndo();
         App.song.tracks = App.song.tracks.filter((x) => x !== t);
         App.song.patterns.forEach((p) => { delete p.drums[t.id]; delete p.notes[t.id]; });
@@ -352,7 +351,7 @@ const UI = {
   /* Delete pattern k, drop it from the song, and keep the selection on a sensible neighbour. */
   deletePattern(k) {
     const s = App.song;
-    if (s.patterns.length <= 1) return toast('A song needs at least one pattern');
+    if (s.patterns.length <= 1) return toast('A level needs at least one pattern');
     const name = s.patterns[k].name;
     const uses = s.arrangement.filter((i) => i === k).length;
     App.pushUndo();
@@ -383,7 +382,7 @@ const UI = {
     });
   },
   /* Picking a track in the sidebar while editing notes opens its editor: drums → Beat,
-     instruments → Piano Roll. Other tabs (Arrange, Adaptive, Mixer, Game Style) stay put. */
+     instruments → Piano Roll. Other tabs (Adaptive, Mixer, Game Style) stay put. */
   followTrackView(t) {
     if (!t || (this.view !== 'beat' && this.view !== 'roll')) return;
     this.showView(t.type === 'drum' ? 'beat' : 'roll');
@@ -436,7 +435,7 @@ const UI = {
       ensureAll(s);
       App.project.scores.push(s);
       App.switchScore(App.project.scores.length - 1);
-      toast(`New score uses the game style: ${App.style.roles.length} roles, ${NOTE_NAMES[s.key]} ${SCALES[s.scale].name}, ${s.bpm} BPM`);
+      toast(`New level uses the game style: ${App.style.roles.length} roles, ${NOTE_NAMES[s.key]} ${SCALES[s.scale].name}, ${s.bpm} BPM`);
     };
     $('#btnDupScore').onclick = () => {
       App.pushUndo();
@@ -450,9 +449,9 @@ const UI = {
       const custom = s.tracks.filter((t) => t.sound).length + (s.mix ? 1 : 0);
       const what = [s.tracks.filter((t) => t.sound).length ? `${s.tracks.filter((t) => t.sound).length} custom sound(s)` : '', s.mix ? 'custom mix' : ''].filter(Boolean).join(' + ');
       return `<div class="score-item ${i === App.project.current ? 'sel' : ''}" data-i="${i}" title="Double-click name to rename">
-        <span class="name">${esc(s.name)}</span><button class="edit" data-act="rename" title="Rename score">✎</button>
+        <span class="name">${esc(s.name)}</span><button class="edit" data-act="rename" title="Rename level">✎</button>
         ${custom ? `<span class="flavor" title="Level flavor: ${what}">✦${custom}</span>` : ''}
-        ${many ? '<button class="x" data-act="del" title="Delete score">✕</button>' : ''}
+        ${many ? '<button class="x" data-act="del" title="Delete level">✕</button>' : ''}
       </div>`;
     }).join('');
   },
@@ -473,7 +472,7 @@ const UI = {
     if (p.current > i || p.current >= p.scores.length) p.current = Math.max(0, p.current - 1);
     if (wasCurrent) { Seq.stop(); App.resetSelection(); Engine.sync(); }
     this.renderAll(); App.changed();
-    undoToast(`Deleted score "${name}"`);
+    undoToast(`Deleted level "${name}"`);
   },
   renderAddTrack() {
     const roles = App.style.roles;
@@ -484,7 +483,7 @@ const UI = {
 
   renderTracks() {
     $('#trackList').innerHTML = App.song.tracks.map((t) => `
-      <div class="track-item ${t.id === App.sel.track && !App.sel.role ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — role: ${esc((roleOf(t) || {}).name || '?')}, sound: ${esc(soundName(snd(t)))}${t.sound ? ' (custom for this level)' : ''} · double-click name to rename">
+      <div class="track-item ${t.id === App.sel.track && !App.sel.role ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — role: ${esc((roleOf(t) || {}).name || '?')}, sound: ${esc(soundName(snd(t)))}${t.sound ? ' (customized for this level)' : ''} · double-click name to rename">
         <span class="dot" style="background:${t.color}"></span>
         <span class="name">${esc(t.name)}</span>
         ${t.sound ? '<span class="flavor" title="Custom sound for this level">✦</span>' : ''}
@@ -621,10 +620,10 @@ const UI = {
     this.beatCols = [];
     $('#beatTrack').closest('label').hidden = drums.length < 2;
     $('#beatScope').hidden = !t;
-    if (!t) { grid.innerHTML = '<p class="muted">This score has no drum track. Add one from the sidebar (Track ▸ a drum role).</p>'; return; }
+    if (!t) { grid.innerHTML = '<p class="muted">This level has no drum track. Add one from the sidebar (Track ▸ a drum role).</p>'; return; }
     const ds = snd(t);
     $('#beatKit').value = ds.kit;
-    $('#beatScope').textContent = t.sound ? 'custom for this level' : `game style · ${roleOf(t).name}`;
+    $('#beatScope').textContent = t.sound ? 'Customized for this level' : `From the game style · ${roleOf(t).name}`;
     $('#beatScope').className = 'scope ' + (t.sound ? 'level' : 'style');
     const pat = App.pattern();
     ensurePattern(pat);
@@ -678,8 +677,16 @@ const UI = {
       synths.map((t) => `<option value="${t.id}" ${cur && t.id === cur.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
   },
 
-  /* ---------- arrangement ---------- */
+  /* ---------- playthrough: a level's patterns in a fixed order, for plain audio/MIDI export ----------
+     (Lives in the Export dialog. The data is still score.arrangement; 'song' mode plays it.) */
   initArrange() {
+    $('#arrLoop').checked = App.loopSong;
+    $('#arrLoop').onchange = (e) => { App.loopSong = e.target.checked; };
+    $('#btnArrPlay').onclick = () => {
+      if (Seq.playing && App.mode === 'song') { Seq.stop(); return; }
+      this.setMode('song', false);
+      Seq.start();
+    };
     $('#arrPalette').addEventListener('click', (e) => {
       const it = e.target.closest('.arr-pat');
       if (!it) return;
@@ -715,7 +722,7 @@ const UI = {
     $('#btnArrClear').onclick = () => {
       if (!App.song.arrangement.length) return;
       App.pushUndo(); App.song.arrangement = []; this.renderArrange(); App.changed();
-      undoToast('Cleared the song arrangement');
+      undoToast('Cleared the playthrough');
     };
   },
   renderArrange() {
@@ -727,7 +734,7 @@ const UI = {
       if (!p) return '';
       return `<div class="arr-block" draggable="true" data-k="${k}" data-i="${i}" style="width:${Math.max(56, p.bars * 40)}px;background:${patColor(i)}" title="Click to edit · double-click to rename · drag to reorder">
         <span>${patLetter(i)}</span><small>${esc(p.name)}</small><button class="x" title="Remove">✕</button></div>`;
-    }).join('') : '<div class="arr-empty">The song is empty — click patterns above to build it. (Song mode plays the selected pattern until then.)</div>';
+    }).join('') : '<div class="arr-empty">Empty — click patterns above to add them. (Until then, export plays the selected pattern.)</div>';
     const bars = arr.reduce((a, i) => a + s.patterns[i].bars, 0);
     const secs = (bars * 4 * 60) / s.bpm;
     $('#arrLen').textContent = `— ${bars} bars · ${Math.floor(secs / 60)}:${String(Math.round(secs % 60)).padStart(2, '0')}`;
@@ -777,10 +784,10 @@ const UI = {
       <div class="strip master" data-id="master" style="--c:var(--accent)">
         <h4>Master</h4>
         ${s.mix
-          ? `<div class="scope level" title="Only ${esc(s.name)} uses this mix">custom for this level</div>
-             <button data-act="mixRevert" class="small-btn">Revert to game style</button>
-             <button data-act="mixPromote" class="small-btn" title="Use this mix for every score that shares the game style">Make this the game style</button>`
-          : `<div class="scope style" title="The master chain is part of the game style: every score shares it, so all levels sit at the same loudness and character.">game style · all scores</div>
+          ? `<div class="scope level" title="Only ${esc(s.name)} uses this mix">Customized for this level</div>
+             <button data-act="mixRevert" class="small-btn">Back to the game style</button>
+             <button data-act="mixPromote" class="small-btn" title="Use this mix for every level that shares the game style">Make this the game style</button>`
+          : `<div class="scope style" title="The master chain is part of the game style: every level shares it, so all levels sit at the same loudness and character.">From the game style · all levels</div>
              <button data-act="mixCustom" class="small-btn" title="Give ${esc(s.name)} its own master mix — e.g. bigger reverb for a cave">Customize for this level</button>`}
         ${ctl('Volume', 'vol', m.vol, 0, 1.5, 0.01, 'pct')}
         <div class="section">EQ</div>
@@ -839,13 +846,13 @@ const UI = {
   scopeBar(tg) {
     const u = App.roleUsage(tg.role.id);
     const shareText = u.shared
-      ? `played by ${u.shared} track${u.shared === 1 ? '' : 's'} in ${u.sharedScores} score${u.sharedScores === 1 ? '' : 's'}`
+      ? `played by ${u.shared} track${u.shared === 1 ? '' : 's'} in ${u.sharedScores} level${u.sharedScores === 1 ? '' : 's'}`
       : 'no tracks use it yet';
-    if (!tg.track) return `<div class="scope-bar"><span class="scope style">game style</span><span class="muted">Role “${esc(tg.role.name)}” — edits change every score that uses it (${shareText}).</span></div>`;
-    if (!tg.track.sound) return `<div class="scope-bar"><span class="scope style">game style · ${esc(tg.role.name)}</span><span class="muted">Edits apply to all levels (${shareText}).</span>
-      <button data-act="customize" title="Give this track its own copy of the sound, for this score only">Customize for this level</button></div>`;
-    return `<div class="scope-bar"><span class="scope level">custom for this level</span><span class="muted">Based on “${esc(tg.role.name)}”. Edits stay in ${esc(App.song.name)}.</span>
-      <button data-act="revert">Revert to game style</button><button data-act="promote" title="Make this sound the game style for “${esc(tg.role.name)}”, used by every score">Make this the game style</button></div>`;
+    if (!tg.track) return `<div class="scope-bar"><span class="scope style">game style</span><span class="muted">Role “${esc(tg.role.name)}” — edits change every level that uses it (${shareText}).</span></div>`;
+    if (!tg.track.sound) return `<div class="scope-bar"><span class="scope style">From the game style · ${esc(tg.role.name)}</span><span class="muted">Edits apply to all levels (${shareText}).</span>
+      <button data-act="customize" title="Give this track its own copy of the sound, for this level only">Customize for this level</button></div>`;
+    return `<div class="scope-bar"><span class="scope level">Customized for this level</span><span class="muted">Based on “${esc(tg.role.name)}”. Edits stay in ${esc(App.song.name)}.</span>
+      <button data-act="revert">Back to the game style</button><button data-act="promote" title="Make this sound the game style for “${esc(tg.role.name)}”, used by every level">Make this the game style</button></div>`;
   },
   renderInst() {
     const tg = this.instTarget();
@@ -1040,7 +1047,7 @@ const UI = {
         App.style.roles.push(r);
         App.sel.role = r.id;
         this.renderStyle(); this.renderAddTrack(); this.renderInst(); this.renderKeyboard(); App.changed();
-        return toast(`Added role “${r.name}”. Add it to a score from the sidebar's Track menu.`);
+        return toast(`Added role “${r.name}”. Add it to a level with the sidebar's + Track menu.`);
       }
       if (act === 'saveFlavor') {
         App.pushUndo();
@@ -1058,7 +1065,7 @@ const UI = {
           App.pushUndo();
           App.project.themes = App.project.themes.filter((x) => x !== th);
           this.renderStyle(); Roll.renderThemeBar(); App.changed();
-          undoToast(`Deleted theme “${th.name}” (notes already in scores stay)`);
+          undoToast(`Deleted theme “${th.name}” (notes already in levels stay)`);
         }
         return;
       }
@@ -1129,7 +1136,7 @@ const UI = {
     $('#stylePanel').innerHTML = `
       <section class="style-sec">
         <h4 class="subhead">Instrument roles</h4>
-        <p class="muted">The game's instrument roster. Every score's tracks play these sounds, so changing a role here changes it in every level — except tracks a level has customized (✦). Click a role to edit its sound below and play it on the keyboard.</p>
+        <p class="muted">The game's instrument roster. Every level's tracks play these sounds, so changing a role here changes it in every level — except tracks a level has customized (✦). Click a role to edit its sound below and play it on the keyboard.</p>
         <div class="role-list">${st.roles.map((r) => {
           const u = App.roleUsage(r.id);
           const custom = u.tracks - u.shared;
@@ -1137,8 +1144,8 @@ const UI = {
             <span class="dot" style="background:${r.color}"></span>
             <span class="name">${esc(r.name)}</span><button class="edit" data-act="rename" title="Rename role">✎</button>
             <span class="snd">${esc(soundName(r))}</span>
-            <span class="muted use">${u.tracks ? `${u.tracks} track${u.tracks > 1 ? 's' : ''} · ${u.scores} score${u.scores > 1 ? 's' : ''}${custom ? ` · <span class="flavor">✦${custom} customized</span>` : ''}` : 'not used yet'}</span>
-            ${u.tracks ? '' : '<button class="x" data-act="del" title="Remove role (not used by any score)">✕</button>'}
+            <span class="muted use">${u.tracks ? `${u.tracks} track${u.tracks > 1 ? 's' : ''} · ${u.scores} level${u.scores > 1 ? 's' : ''}${custom ? ` · <span class="flavor">✦${custom} customized</span>` : ''}` : 'not used yet'}</span>
+            ${u.tracks ? '' : '<button class="x" data-act="del" title="Remove role (not used by any level)">✕</button>'}
           </div>`;
         }).join('')}</div>
         <div class="row gap add-role">
@@ -1156,7 +1163,7 @@ const UI = {
             <span class="name">${esc(th.name)}</span><button class="edit" data-act="renameTheme" title="Rename theme">✎</button>
             <span class="snd">${NOTE_NAMES[th.key]} ${esc(SCALES[th.scale].name.toLowerCase())} · ${th.bars} bar${th.bars > 1 ? 's' : ''} · ${th.notes.length} notes</span>
             <span class="muted use">${n ? `used ${n} time${n > 1 ? 's' : ''}` : 'not used yet'}</span>
-            <button class="x" data-act="delTheme" title="Delete theme (notes already in scores stay)">✕</button>
+            <button class="x" data-act="delTheme" title="Delete theme (notes already in levels stay)">✕</button>
           </div>`;
         }).join('') || '<p class="muted">No themes yet.</p>'}</div>
       </section>
@@ -1175,17 +1182,17 @@ const UI = {
           : Flavors.hasCustom() ? `<button data-act="saveFlavor" title="Save ${esc(App.song.name)}'s custom sounds and mix as a reusable flavor">Save this level's flavor</button>` : `<p class="muted">${esc(App.song.name)} uses the plain game style. Customize a track's sound or the mix for this level, then save it here as a flavor.</p>`}
       </section>
       <section class="style-sec">
-        <h4 class="subhead">Defaults for new scores</h4>
+        <h4 class="subhead">Defaults for new levels</h4>
         <div class="row gap wrap">
           <label>Key <select data-def="key">${opt(NOTE_NAMES.map((n, i) => [i, n]), st.key)}</select></label>
           <label>Scale <select data-def="scale">${opt(Object.entries(SCALES).map(([k, s]) => [k, s.name]), st.scale)}</select></label>
           <label>BPM <input data-def="bpm" type="number" min="40" max="260" value="${st.bpm}" style="width:5em"></label>
         </div>
-        <p class="muted">A score can still choose its own key and tempo — useful when a level needs a different mood.</p>
+        <p class="muted">A level can still choose its own key and tempo — useful when a level needs a different mood.</p>
       </section>
       <section class="style-sec">
         <h4 class="subhead">Mix</h4>
-        <p class="muted">The master EQ, compressor, reverb and delay (Mixer &amp; FX tab) belong to the game style, so every score shares them — unless a level customizes its mix there. Track levels, panning and sends stay per score.</p>
+        <p class="muted">The master EQ, compressor, reverb and delay (Mixer &amp; FX tab) belong to the game style, so every level shares them — unless a level customizes its mix there. Track levels, panning and sends stay per level.</p>
       </section>`;
   },
 
@@ -1266,13 +1273,17 @@ const UI = {
       const audio = ['wav16', 'wav24', 'wav32', 'mp3', 'stems'].includes(fmt);
       $('#expUnity').hidden = fmt !== 'unity';
       $('#expSource').hidden = !(audio || fmt === 'midi');
+      $('#expPlaythrough').hidden = $('input[name=src]:checked', dlg).value !== 'song';
+      dlg.classList.toggle('wide', !$('#expSource').hidden && !$('#expPlaythrough').hidden);
       $$('.exp-audio', dlg).forEach((el) => (el.hidden = !audio));
       $('#mp3Opt').hidden = fmt !== 'mp3';
       $('#uFolderRow').hidden = !window.showDirectoryPicker;
       $('#btnDoExport').textContent = fmt === 'unity' && $('#uFolder').checked ? 'Choose folder & export' : 'Export';
     };
     dlg.addEventListener('change', syncDlg);
-    $('#btnExport').onclick = () => { $('#expStatus').textContent = ''; syncDlg(); dlg.showModal(); };
+    $('#btnExport').onclick = () => { $('#expStatus').textContent = ''; this.renderArrange(); syncDlg(); dlg.showModal(); };
+    // Hearing the playthrough is part of the dialog: closing it stops that and goes back to looping a pattern.
+    dlg.addEventListener('close', () => { if (App.mode === 'song') { Seq.stop(); this.setMode('pattern', false); } });
     $('#btnDoExport').onclick = async (e) => {
       e.preventDefault();
       const fmt = $('input[name=fmt]:checked', dlg).value;
@@ -1286,7 +1297,7 @@ const UI = {
       const btn = $('#btnDoExport');
       btn.disabled = true;
       try {
-        if (src === 'song' && !App.song.arrangement.length && fmt !== 'project') toast('Song arrangement is empty — exporting the selected pattern');
+        if (src === 'song' && !App.song.arrangement.length && fmt !== 'project') toast('The playthrough is empty — exporting the selected pattern');
         if (fmt === 'project') { download(App.projectBlob(), name + '.synth.json'); status.textContent = 'Saved project file.'; }
         else if (fmt === 'midi') { download(exportMIDI(src, repeats), name + '.mid'); status.textContent = 'Saved MIDI file.'; }
         else if (fmt === 'stems') {
@@ -1344,7 +1355,7 @@ const UI = {
       else download(makeZip(res.entries), res.root + '.zip');
       const files = res.entries.length;
       const gains = res.scores.map((s) => `${s.manifest.score}: ${s.manifest.loudness.gainDb >= 0 ? '+' : ''}${s.manifest.loudness.gainDb} dB`).join(' · ');
-      status.textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(1)}s — ${res.scores.length} score${res.scores.length > 1 ? 's' : ''}, ${files} files${dir ? ` saved into “${dir.name}/${res.root}”` : ''}. Loudness gain: ${gains}.` +
+      status.textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(1)}s — ${res.scores.length} level${res.scores.length > 1 ? 's' : ''}, ${files} files${dir ? ` saved into “${dir.name}/${res.root}”` : ''}. Loudness gain: ${gains}.` +
         (res.hasScript ? '' : ' (AdaptiveMusicPlayer.cs wasn’t included — open the app from the website or local server, not as a file.)');
     } catch (err) {
       console.error(err);

@@ -16,16 +16,16 @@ then open http://localhost:8775. Chrome or Edge work best. (Avoid 8765 if you al
 
 Synth Studio is built for making a game's soundtrack. A project is the whole game:
 
-- **Scores** (sidebar) — one per level or cue. Each has its own patterns, arrangement, key and tempo.
-- **Game Style** tab — the game's instrument **roles** (Drums, Bass, Keys, Pad, Lead, …) and defaults for new scores. Every score's tracks play their role's sound, so changing a role changes it in every level.
-- **Level flavors** — on any track, *Customize for this level* gives it its own sound in that score only (marked ✦). *Revert to game style* undoes it; *Make this the game style* promotes it to every level.
-- The **master mix** (Mixer & FX) is part of the style and shared by every score, so levels stay consistent in loudness and character. A level can *Customize* its own mix (e.g. a bigger reverb for a cave).
+- **Levels** (sidebar) — one per level or cue. Each has its own patterns, key and tempo.
+- **Game Style** tab — the game's instrument **roles** (Drums, Bass, Keys, Pad, Lead, …) and defaults for new levels. Every level's tracks play their role's sound, so changing a role changes it in every level.
+- **The game decides; a level can override** — a track's sound shows *From the game style* until you press *Customize for this level*, which gives it its own sound in that level only (marked ✦). *Back to the game style* undoes it; *Make this the game style* promotes it to every level.
+- The **master mix** (Mixer & FX) is part of the style and shared by every level, so levels stay consistent in loudness and character. A level can *Customize* its own mix (e.g. a bigger reverb for a cave).
 - **Themes** — the game's recurring melodies and progressions. *Save as theme* in the Piano Roll, then insert it into any level: it's fitted to that level's key and scale, optionally at half/double speed or another octave. Inserted notes stay linked: *Re-apply theme* after the theme changes, or *Update theme from these notes* to push an edit back. Listed in Game Style → Themes.
 - **Flavors** — save a level's customizations (custom sounds + mix) as a named flavor and apply it to another level. Listed in Game Style → Flavors.
 
 ## Adaptive music
 
-The **Adaptive** tab sets up how a score responds to gameplay and lets you hear it the way the game will play it:
+The **Adaptive** tab sets up how a level responds to gameplay and lets you hear it the way the game will play it:
 
 - **Segments & stings** — each pattern is either a *segment* (loops while the game stays in a state: explore, combat, boss…) or a *sting* (plays once). A segment can be entered *through* a sting.
 - **Intensity layers** — tracks are grouped into stacked layers (e.g. Base → Rhythm → Intensity). The base always plays; each layer above fades in as intensity rises.
@@ -33,12 +33,12 @@ The **Adaptive** tab sets up how a score responds to gameplay and lets you hear 
 
 ## Unity export
 
-**Export → Unity adaptive package** renders one score or the whole game into a `.zip` (or straight into a folder in Chrome/Edge):
+**Export → Unity adaptive package** renders one level or the whole game into a `.zip` (or straight into a folder in Chrome/Edge):
 
 - one WAV stem per segment × intensity layer — seamless loops, exactly the segment's length, effect tails wrapped into the start
 - one WAV per sting, with its natural tail
-- `manifest.json` per score (tempo, layers, segments, stings, transition rule, loudness)
-- loudness matched across scores to a LUFS target (default −16), peaks kept under −1 dBFS
+- `manifest.json` per level (tempo, layers, segments, stings, transition rule, loudness)
+- loudness matched across levels to a LUFS target (default −16), peaks kept under −1 dBFS
 - `AdaptiveMusicPlayer.cs`, the Unity component that plays it all: `GoToSegment("Action")`, `SetIntensity(0.7f)`, `PlaySting("Alert")`, `EndWithSting("Finish")`, `Stop(2f)`
 
 Setup and import settings: [unity/README.md](unity/README.md).
@@ -48,10 +48,9 @@ Setup and import settings: [unity/README.md](unity/README.md).
 - **Beat** – 10-voice drum step sequencer (kick, snare, clap, hats, toms, rim, cowbell, crash), 5 synthesized kits, per-pad level/tune/decay/pan, load your own samples onto any pad, velocity accents, 10 preset beat loops.
 - **Piano Roll** – draw, move, resize, box-select, alt-drag duplicate, transpose, quantize. Key/scale highlighting, ghost notes from other tracks, and a loop generator (chords, basslines, arps, riffs) that follows your key and a chosen chord progression.
 - **Instruments** – 11 presets (piano, e-piano, organ, bass, sub, pad, strings, lead, pluck, bell, brass) on a 2-oscillator subtractive synth with ADSR, filter + filter envelope, vibrato.
-- **Arrange** – build a song from patterns; drag to reorder. Pattern mode loops one pattern, Song mode plays the arrangement.
 - **Mixer & FX** – per track: volume, pan, drive, tone filter, reverb and delay sends, mute/solo. Master: 3-band EQ, compressor, reverb (size/return), tempo-synced delay, limiter.
 - **Playing & recording** – on-screen keyboard, computer keyboard (A W S E D F T G Y H U J K O L P, Z/X octave), Web MIDI keyboards. Press ● to record into the playing pattern (optional quantize). Metronome and swing.
-- **Export** – WAV (16/24/32-bit float), MP3 (128–320 kbps; first use needs internet to load the encoder), per-track stems, Standard MIDI file, project file (.json). **Open** loads projects or imports MIDI files.
+- **Export** – WAV (16/24/32-bit float), MP3 (128–320 kbps; first use needs internet to load the encoder), per-track stems, Standard MIDI file, project file (.json). Audio and MIDI render either the selected pattern or a *playthrough*: a level's patterns in an order you set in the Export window (▶ Play it to hear it), for a trailer or soundtrack file. **Open** loads projects or imports MIDI files.
 
 ## Working with Claude (MCP)
 

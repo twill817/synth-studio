@@ -216,7 +216,7 @@ server.registerTool('get_project', {
 
 server.registerTool('get_score', {
   title: 'Describe a score',
-  description: 'One score (level) in detail: key, tempo, tracks (role, sound, custom-for-this-level, layer), intensity layers, patterns (segment or sting, bars, entry sting, which tracks have notes, linked themes), song arrangement and transition rule.',
+  description: 'One score (level) in detail: key, tempo, tracks (role, sound, custom-for-this-level, layer), intensity layers, patterns (segment or sting, bars, entry sting, which tracks have notes, linked themes), playthrough (pattern order for plain audio export) and transition rule.',
   inputSchema: { score: scoreRef },
 }, forward('getScore'));
 
@@ -282,9 +282,9 @@ edit('add_pattern', 'Add a pattern', 'Add a pattern to a score: kind "segment" (
 edit('set_pattern', 'Change a pattern', 'Rename a pattern, change its length (1/2/4/8 bars) or kind (segment/sting), or set the sting the game plays when switching into this segment (entry_sting; "" removes it).',
   { score: scoreRef, pattern: patternRef, name: z.string().optional(), bars: z.number().int().optional(), kind: z.enum(['segment', 'sting']).optional(), entry_sting: z.string().optional() }, 'setPattern');
 
-edit('delete_pattern', 'Delete a pattern', 'Delete a pattern (and its blocks in the song arrangement).', { score: scoreRef, pattern: patternRef }, 'deletePattern');
+edit('delete_pattern', 'Delete a pattern', 'Delete a pattern (and its blocks in the export playthrough).', { score: scoreRef, pattern: patternRef }, 'deletePattern');
 
-edit('set_arrangement', 'Set the song order', 'Set the linear song order (used for Song playback and plain audio export), as a list of pattern names.',
+edit('set_arrangement', 'Set the export playthrough', 'Set a level\'s playthrough: a fixed pattern order used only for plain audio/MIDI export (Export › A playthrough), e.g. for a trailer or soundtrack file. The game itself never plays it — in-game music is segments, stings and intensity. Give a list of pattern names.',
   { score: scoreRef, patterns: z.array(z.string()).min(1) }, 'setArrangement');
 
 edit('set_layers', 'Set intensity layers', 'Define a score\'s intensity layers, bottom (always on) to top (fades in last), and/or assign tracks to layers. Each layer becomes its own stem in Unity; the game raises intensity to fade upper layers in. Typical: Base (harmony) → Rhythm (drums, bass) → Intensity (lead, extra percussion).',
