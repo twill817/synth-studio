@@ -559,7 +559,7 @@ Object.assign(BridgeAPI, {
       if (layer) partOf(p, t).layer = Ref.pick(s.layers, layer, 'layer').id;
       const src = copyPartsFromOriginal(s, p, t);
       Edit._show = { track: t, pattern: p };
-      return `Added “${t.name}” (instrument ${r.name}, ${soundName(r)}) to “${p.name}” in ${s.name}.` + (src ? ` It plays the same ${t.type === 'drum' ? 'beats' : 'notes'}${hasCurves(partOf(p, t).curves) ? ' and curves' : ''} as “${src.name}” there (copied, since ${r.name} was duplicated from its instrument).` : '');
+      return `Added “${t.name}” (instrument ${r.name}, ${soundName(r)}) to “${p.name}” in ${s.name}.` + (src ? ` It plays the same ${t.type === 'drum' ? 'beats' : 'notes'}${hasCurves(partOf(p, t).curves) ? ' and curves' : ''} as “${src.lane.name}” in “${(src.pattern || p).name}” (copied, since ${r.name} was duplicated from its instrument).` : '');
     }, Edit.consumeShow());
   },
 

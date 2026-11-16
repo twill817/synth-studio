@@ -281,24 +281,42 @@ function ensurePattern(pat, song = App.song) {
 function ensureAll(song = App.song) { song.patterns.forEach((p) => ensurePattern(p, song)); }
 
 /* An instrument added to a track that was duplicated from another one: copy the beats (or notes),
-   curves and layer of the instrument in this track that plays the original (or the original's original).
-   Returns that source lane, or null when the track has none. */
+   curves and layer of the instrument that plays the original (or the original's original): in this
+   track if it's there, else in another track of the level (repeated or cut to this track's length).
+   Returns { lane, pattern } (pattern is the other track, or null for this one), or null when none plays it. */
 function copyPartsFromOriginal(song, p, t) {
-  let fromId = (App.role(t.role) || {}).from, src = null;
+  let fromId = (App.role(t.role) || {}).from, src = null, q = null;
   const seen = new Set();
+  const others = [p, ...song.patterns.filter((o) => o !== p && o.kind === p.kind), ...song.patterns.filter((o) => o !== p && o.kind !== p.kind)];
   while (fromId && !seen.has(fromId) && !src) {
     seen.add(fromId);
-    src = partLanes(song, p).find((x) => x.role === fromId && x !== t && x.type === t.type) || null;
+    for (const o of others) {
+      src = partLanes(song, o).find((x) => x.role === fromId && x !== t && x.type === t.type) || null;
+      if (src) { q = o; break; }
+    }
     fromId = (App.role(fromId) || {}).from;
   }
   if (!src) return null;
-  if (t.type === 'drum') p.drums[t.id] = clone(p.drums[src.id] || {});
-  else p.notes[t.id] = clone(p.notes[src.id] || []);
-  const x = partOf(p, t), y = partOf(p, src);
-  x.layer = y.layer;
-  if (y.curves && Object.keys(y.curves).length) x.curves = clone(y.curves); else delete x.curves;   // its curves in this track too
+  const steps = p.bars * 16, srcSteps = q.bars * 16;
+  if (t.type === 'drum') {
+    const d = {};
+    Object.entries(q.drums[src.id] || {}).forEach(([v, row]) => { d[v] = Array.from({ length: steps }, (_, i) => row[i % srcSteps] || 0); });
+    p.drums[t.id] = d;
+  } else {
+    const ns = [];
+    for (let off = 0; off < steps; off += srcSteps) {
+      (q.notes[src.id] || []).forEach((n) => {
+        const s = n.s + off;
+        if (s < steps) ns.push({ ...clone(n), s, l: Math.min(n.l, steps - s) });
+      });
+    }
+    p.notes[t.id] = ns;
+  }
+  const x = partOf(p, t), y = partOf(q, src);
+  if (q === p) x.layer = y.layer;   // another track may have other layers
+  if (y.curves && Object.keys(y.curves).length) x.curves = clone(y.curves); else delete x.curves;   // its curves too
   ensurePattern(p, song);
-  return src;
+  return { lane: src, pattern: q === p ? null : q };
 }
 
 function applyBeat(pat, trackId, beatName) {
