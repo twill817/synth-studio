@@ -39,7 +39,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | Tool | What it does |
 |---|---|
 | `status` | Is a Synth Studio page connected, and which game/score is open |
-| `get_project` | Game style (roles, mix), themes, flavors, every score's segments/stings/layers |
+| `get_project` | Game style (instruments — `roles` — and mix), themes, flavors, every score's segments/stings/layers |
 | `get_score` | One level in detail: tracks, layers, patterns, links to themes, export playthrough |
 | `get_pattern` | A pattern's notes (`1.1.1 A4 1/4 v100`) and drum lines (`X...x...|…`) |
 | **Composing** | |
@@ -62,7 +62,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | **Sound & consistency** | |
 | `set_sound` | Change a sound for one level (`scope: level`) or the whole game (`scope: game_style` — reports every score it reaches) |
 | `sound_scope` | Customize / revert / promote a track's sound |
-| `manage_role` | Add, rename, remove (unused) game-style roles |
+| `manage_role` | The Library's instruments: add, rename, duplicate, set the default mix, remove (unused) |
 | `set_mix` | A level's own mix, or the shared game mix (reports which levels it reaches) |
 | `flavor` | Apply or save a level flavor |
 | **Production** | |

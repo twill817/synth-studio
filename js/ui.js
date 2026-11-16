@@ -286,10 +286,12 @@ const UI = {
       const n = App.song.tracks.filter((x) => x.role === role.id).length;
       const t = makeTrack(role, n ? `${role.name} ${n + 1}` : role.name);
       App.song.tracks.push(t); ensureAll(); App.sel.track = t.id; App.sel.role = null;
+      const src = copyPartsFromOriginal(App.song, t);
       if (t.type === 'drum') this.beatTrackId = t.id;
       Engine.sync(); this.renderAll(); App.changed();
       this.followTrackView(t);
-      if (kind === 'new') toast(`Added “${role.name}” to the game style`);
+      if (kind === 'new') toast(`Added the instrument “${role.name}” to the Library`);
+      else if (src) toast(`“${t.name}” plays the same ${t.type === 'drum' ? 'beats' : 'notes'} as “${src.name}” in every pattern — change them freely`, 3500);
     };
     this.initScores();
     const tl = $('#trackList');
@@ -425,7 +427,7 @@ const UI = {
   },
   selectTrack(id, opts = {}) {
     App.sel.track = id;
-    if (App.sel.role) { App.sel.role = null; this.renderStyle(); }
+    if (App.sel.role) { App.sel.role = null; this.renderLibrary(); }
     const t = App.track(id);
     if (t.type === 'drum') { this.beatTrackId = id; this.renderBeat(); }
     Roll.sel.clear();
@@ -472,7 +474,7 @@ const UI = {
       ensureAll(s);
       App.project.scores.push(s);
       App.switchScore(App.project.scores.length - 1);
-      toast(`New level uses the game style: ${App.style.roles.length} roles, ${NOTE_NAMES[s.key]} ${SCALES[s.scale].name}, ${s.bpm} BPM`);
+      toast(`New level uses the game style: ${App.style.roles.length} instruments, ${NOTE_NAMES[s.key]} ${SCALES[s.scale].name}, ${s.bpm} BPM`);
     };
     $('#btnDupScore').onclick = () => {
       App.pushUndo();
@@ -514,13 +516,13 @@ const UI = {
   renderAddTrack() {
     const roles = App.style.roles;
     $('#addTrackPreset').innerHTML =
-      `<optgroup label="Game roles">${roles.map((r) => `<option value="role:${r.id}">${esc(r.name)}</option>`).join('')}</optgroup>` +
-      `<optgroup label="New role from…">${Object.entries(SYNTH_PRESETS).map(([k, p]) => `<option value="new:${k}">${p.name}</option>`).join('')}<option value="new:drum">Drum kit</option></optgroup>`;
+      `<optgroup label="Library instruments">${roles.map((r) => `<option value="role:${r.id}">${esc(r.name)}</option>`).join('')}</optgroup>` +
+      `<optgroup label="New instrument from…">${Object.entries(SYNTH_PRESETS).map(([k, p]) => `<option value="new:${k}">${p.name}</option>`).join('')}<option value="new:drum">Drum kit</option></optgroup>`;
   },
 
   renderTracks() {
     $('#trackList').innerHTML = App.song.tracks.map((t) => `
-      <div class="track-item ${t.id === App.sel.track && !App.sel.role ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — role: ${esc((roleOf(t) || {}).name || '?')}${App.song.layers.length > 1 ? `, intensity layer: ${esc((App.song.layers.find((l) => l.id === t.layer) || {}).name || '?')}` : ''}, sound: ${esc(soundName(snd(t)))}${t.sound ? ' (customized for this level)' : ''} · double-click name to rename">
+      <div class="track-item ${t.id === App.sel.track && !App.sel.role ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — instrument: ${esc((roleOf(t) || {}).name || '?')}${App.song.layers.length > 1 ? `, intensity layer: ${esc((App.song.layers.find((l) => l.id === t.layer) || {}).name || '?')}` : ''}, sound: ${esc(soundName(snd(t)))}${t.sound ? ' (customized for this level)' : ''} · double-click name to rename">
         <span class="dot" style="background:${t.color}"></span>
         <span class="name">${esc(t.name)}</span>
         ${t.sound ? '<span class="flavor" title="Custom sound for this level">✦</span>' : ''}
@@ -654,10 +656,10 @@ const UI = {
     this.beatCols = [];
     $('#beatTrack').closest('label').hidden = drums.length < 2;
     $('#beatScope').hidden = !t;
-    if (!t) { grid.innerHTML = '<p class="muted">This level has no drum track. Add one from the sidebar (Track ▸ a drum role).</p>'; return; }
+    if (!t) { grid.innerHTML = '<p class="muted">This level has no drum track. Add one from the sidebar (+ Track ▸ a drum instrument).</p>'; return; }
     const ds = snd(t);
     $('#beatKit').value = ds.kit;
-    $('#beatScope').textContent = t.sound ? 'Customized for this level' : `From the game style · ${roleOf(t).name}`;
+    $('#beatScope').textContent = t.sound ? 'Customized for this level' : `From the library · ${roleOf(t).name}`;
     $('#beatScope').className = 'scope ' + (t.sound ? 'level' : 'style');
     const pat = App.pattern();
     ensurePattern(pat);
@@ -910,9 +912,9 @@ const UI = {
   },
 
   /* ---------- instrument panel ---------- */
-  /* What the instrument panel edits: a role (from the Game Style tab) or the selected track.
-     For a track, `sound` is its level override if it has one, otherwise its role — so edits
-     either stay in this level or change the game style for every score. */
+  /* What the instrument panel edits: a library instrument (selected in the Library tab) or the
+     selected track. For a track, `sound` is its level override if it has one, otherwise its
+     instrument — so edits either stay in this level or change the instrument in every level. */
   instTarget() {
     if (App.sel.role) { const r = App.role(App.sel.role); return r && { role: r, track: null, sound: r }; }
     const t = App.track();
@@ -924,8 +926,9 @@ const UI = {
       const tg = this.instTarget();
       if (!tg) return null;
       const S = tg.sound;
-      if (el.dataset.k === 'preset') return { obj: S, after: (el2, v) => { S.synth = { ...SYNTH_PRESETS[v] }; this.renderInst(); this.renderStyle(); this.renderTracks(); } };
-      if (el.dataset.k === 'kit') return { obj: S, after: () => { this.renderBeat(); this.renderStyle(); } };
+      if (el.closest('[data-scope="mix"]')) return tg.track ? null : { obj: tg.role.mix, after: () => this.renderLibrary() };
+      if (el.dataset.k === 'preset') return { obj: S, after: (el2, v) => { S.synth = { ...SYNTH_PRESETS[v] }; this.renderInst(); this.renderLibrary(); this.renderTracks(); } };
+      if (el.dataset.k === 'kit') return { obj: S, after: () => { this.renderBeat(); this.renderLibrary(); } };
       return { obj: S.synth };
     });
     ip.addEventListener('click', (e) => {
@@ -934,16 +937,16 @@ const UI = {
       if (!act || !tg || !tg.track) return;
       const t = tg.track, r = tg.role;
       App.pushUndo();
-      if (act === 'customize') { t.sound = soundFields(r); toast(`“${t.name}” now has its own sound in ${App.song.name}. The game style is unchanged.`, 3500); }
-      else if (act === 'revert') { t.sound = null; undoToast(`“${t.name}” is back on the game style (${r.name})`); }
+      if (act === 'customize') { t.sound = soundFields(r); toast(`“${t.name}” now has its own sound in ${App.song.name}. The library instrument is unchanged.`, 3500); }
+      else if (act === 'revert') { t.sound = null; undoToast(`“${t.name}” is back on the library version (${r.name})`); }
       else if (act === 'promote') {
         Object.assign(r, soundFields(t.sound));
         t.sound = null;
         const u = App.roleUsage(r.id);
-        undoToast(`“${r.name}” in the game style now uses this sound (${u.shared} track${u.shared === 1 ? '' : 's'} share it)`);
+        undoToast(`The library instrument “${r.name}” now uses this sound (${u.shared} track${u.shared === 1 ? '' : 's'} share it)`);
       }
       App.changed();
-      this.renderInst(); this.renderTracks(); this.renderScores(); this.renderStyle(); this.renderBeat();
+      this.renderInst(); this.renderTracks(); this.renderScores(); this.renderLibrary(); this.renderBeat();
     });
   },
   /* One line explaining where edits go, with the actions that make sense in that state. */
@@ -952,11 +955,11 @@ const UI = {
     const shareText = u.shared
       ? `played by ${u.shared} track${u.shared === 1 ? '' : 's'} in ${u.sharedScores} level${u.sharedScores === 1 ? '' : 's'}`
       : 'no tracks use it yet';
-    if (!tg.track) return `<div class="scope-bar"><span class="scope style">game style</span><span class="muted">Role “${esc(tg.role.name)}” — edits change every level that uses it (${shareText}).</span></div>`;
-    if (!tg.track.sound) return `<div class="scope-bar"><span class="scope style">From the game style · ${esc(tg.role.name)}</span><span class="muted">Edits apply to all levels (${shareText}).</span>
+    if (!tg.track) return `<div class="scope-bar"><span class="scope style">Library instrument</span><span class="muted">“${esc(tg.role.name)}” — edits change every level that plays it (${shareText}), except levels that customized it.</span></div>`;
+    if (!tg.track.sound) return `<div class="scope-bar"><span class="scope style">From the library · ${esc(tg.role.name)}</span><span class="muted">Edits apply to all levels (${shareText}).</span>
       <button data-act="customize" title="Give this track its own copy of the sound, for this level only">Customize for this level</button></div>`;
     return `<div class="scope-bar"><span class="scope level">Customized for this level</span><span class="muted">Based on “${esc(tg.role.name)}”. Edits stay in ${esc(App.song.name)}.</span>
-      <button data-act="revert">Back to the game style</button><button data-act="promote" title="Make this sound the game style for “${esc(tg.role.name)}”, used by every level">Make this the game style</button></div>`;
+      <button data-act="revert">Back to the library version</button><button data-act="promote" title="Make this sound the library instrument “${esc(tg.role.name)}”, used by every level">Make this the library version</button></div>`;
   },
   renderInst() {
     const tg = this.instTarget();
@@ -964,13 +967,24 @@ const UI = {
     if (!tg || !tg.role) { ip.innerHTML = ''; return; }
     const S = tg.sound;
     const color = tg.track ? tg.track.color : tg.role.color;
-    const title = tg.track ? esc(tg.track.name) : 'Role: ' + esc(tg.role.name);
+    const title = tg.track ? esc(tg.track.name) : 'Instrument: ' + esc(tg.role.name);
     const dot = `<span class="dot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color}"></span>`;
+    // A library instrument also has a default mix: what new tracks playing it start with.
+    const m = tg.role.mix || {};
+    const mixHTML = tg.track ? '' : `<div class="section inst-mix-head">Default mix <span class="muted">— what a new track playing it starts with (each level's tracks keep their own mix)</span></div>
+      <div class="inst-grid" data-scope="mix">
+        ${ctl('Volume', 'vol', m.vol, 0, 1.2, 0.01, 'pct')}
+        ${ctl('Pan', 'pan', m.pan, -1, 1, 0.01, 'pan')}
+        ${ctl('Drive', 'drive', m.drive, 0, 1, 0.01, 'pct')}
+        ${ctl('Tone (LPF)', 'tone', m.tone, 200, 20000, 1, 'hz')}
+        ${ctl('Reverb', 'rev', m.rev, 0, 1, 0.01, 'pct')}
+        ${ctl('Delay', 'dly', m.dly, 0, 1, 0.01, 'pct')}
+      </div>`;
     if (tg.role.type === 'drum') {
       ip.innerHTML = `<h4>${dot}${title}
         <label>Kit <select data-k="kit">${Object.entries(DRUM_KITS).map(([k, v]) => `<option value="${k}" ${k === S.kit ? 'selected' : ''}>${v.name}</option>`).join('')}</select></label></h4>
         ${this.scopeBar(tg)}
-        <p class="muted">Per-pad level, tuning, decay, pan and custom samples are in the <b>Beat</b> tab. The keyboard plays pads chromatically from C (C = kick, C# = snare, D = clap …) — or use number keys 1–0.</p>`;
+        <p class="muted">Per-pad level, tuning, decay, pan and custom samples are in the <b>Beat</b> tab. The keyboard plays pads chromatically from C (C = kick, C# = snare, D = clap …) — or use number keys 1–0.</p>${mixHTML}`;
       return;
     }
     const p = S.synth;
@@ -995,7 +1009,7 @@ const UI = {
         ${ctl('Vibrato rate', 'lfoRate', p.lfoRate, 0.1, 12, 0.1, 'hz')}
         ${ctl('Vibrato depth', 'lfoDepth', p.lfoDepth, 0, 50, 1, 'ct')}
         ${ctl('Level', 'gain', p.gain, 0, 1.6, 0.01, 'pct')}
-      </div>`;
+      </div>${mixHTML}`;
   },
 
   /* ---------- Library tab: every segment, sting and melody in the game ---------- */
@@ -1003,6 +1017,7 @@ const UI = {
   initLibrary() {
     const lp = $('#libraryPanel');
     lp.addEventListener('click', (e) => {
+      if (this.instrumentsClick(e)) return;
       const b = e.target.closest('button');
       if (!b) return;
       if (b.dataset.filter) { this.libFilter = b.dataset.filter; return this.renderLibrary(); }
@@ -1029,6 +1044,8 @@ const UI = {
       }
     });
     lp.addEventListener('dblclick', (e) => {
+      const ir = e.target.closest('.role-row');
+      if (ir && !e.target.closest('button')) return this.renameRole(ir.dataset.id);
       const row = e.target.closest('.lib-row');
       if (row && e.target.closest('.name')) this.renameLibItem(row, Library.find(row.dataset.id));
     });
@@ -1069,12 +1086,82 @@ const UI = {
         <button class="x" data-act="del" title="${it.kind === 'melody' ? 'Delete melody (notes already in levels stay)' : 'Delete from the library (levels that use it keep their notes as their own version)'}">✕</button>
       </div>`;
     };
-    lp.innerHTML = `<section class="style-sec lib-sec">
-      <h4 class="subhead">Library</h4>
+    lp.innerHTML = `${this.instrumentsHTML()}<section class="style-sec lib-sec">
+      <h4 class="subhead">Segments, stings and melodies</h4>
       <p class="muted">Every segment, sting and melody in the game. Levels place patterns <b>linked</b>: edit one in any level and it changes everywhere it's linked, moved into each level's key. “Make a version for this level” (above the Beat grid and Piano Roll) splits one off. Melodies are the game's themes: insert them from the Piano Roll.</p>
       <div class="lib-filters">${chips}</div>
       <div class="role-list">${items.map(row).join('') || '<p class="muted">Nothing here yet.</p>'}</div>
     </section>`;
+  },
+
+  /* ---------- Library → Instruments (were the Game Style's instrument roles) ---------- */
+  instrumentsHTML() {
+    const st = App.style;
+    return `<section class="style-sec lib-sec">
+      <h4 class="subhead">Instruments</h4>
+      <p class="muted">The game's instruments, each with its own sound and default mix. Every level's tracks play these, so changing one here changes it in every level — except tracks a level has customized (✦). Click one to edit it below and play it on the keyboard; add it to a level with the sidebar's + Track.</p>
+      <div class="role-list">${st.roles.map((r) => {
+        const u = App.roleUsage(r.id);
+        const custom = u.tracks - u.shared;
+        const where = App.project.scores.filter((s) => s.tracks.some((t) => t.role === r.id)).map((s) => s.name).join(', ');
+        return `<div class="role-row ${App.sel.role === r.id ? 'sel' : ''}" data-id="${r.id}" title="Click to edit · double-click name to rename">
+          <span class="dot" style="background:${r.color}"></span>
+          <span class="name">${esc(r.name)}</span><button class="edit" data-act="rename" title="Rename instrument">✎</button>
+          <span class="snd">${esc(soundName(r))}</span>
+          <span class="muted use" title="${esc(where)}">${u.tracks ? `${u.tracks} track${u.tracks > 1 ? 's' : ''} · ${u.scores} level${u.scores > 1 ? 's' : ''}${custom ? ` · <span class="flavor">✦${custom} customized</span>` : ''}` : 'not used yet'}</span>
+          <button data-act="dupRole" title="Copy as a new instrument (same sound and mix) to vary">Duplicate</button>
+          <button class="x" data-act="del" title="${u.tracks ? `Can't delete: played in ${esc(where)}. Remove those tracks first.` : 'Delete instrument (not used by any level)'}" ${u.tracks ? 'disabled' : ''}>✕</button>
+        </div>`;
+      }).join('')}</div>
+      <div class="row gap add-role">
+        <select id="newRolePreset">${Object.entries(SYNTH_PRESETS).map(([k, p]) => `<option value="${k}">${p.name}</option>`).join('')}<option value="drum">Drum kit</option></select>
+        <button data-act="addRole">+ Instrument</button>
+      </div>
+    </section>`;
+  },
+  instrumentsClick(e) {
+    const act = e.target.dataset.act;
+    const after = () => { this.renderLibrary(); this.renderAddTrack(); this.renderInst(); this.renderKeyboard(); };
+    if (act === 'addRole') {
+      const k = $('#newRolePreset').value;
+      App.pushUndo();
+      const r = makeRole(k);
+      App.style.roles.push(r);
+      App.sel.role = r.id;
+      after(); App.changed();
+      toast(`Added the instrument “${r.name}”. Add it to a level with the sidebar's + Track.`);
+      return true;
+    }
+    const row = e.target.closest('.role-row');
+    if (!row) return false;
+    const r = App.role(row.dataset.id);
+    if (!r) return true;
+    if (act === 'del') {
+      if (App.roleUsage(r.id).tracks) return true;
+      App.pushUndo();
+      App.style.roles = App.style.roles.filter((x) => x !== r);
+      if (App.sel.role === r.id) App.sel.role = null;
+      after(); App.changed();
+      undoToast(`Deleted the instrument “${r.name}”`);
+      return true;
+    }
+    if (act === 'dupRole') {
+      App.pushUndo();
+      const c = clone(r);
+      c.id = uid(); c.name = uniqueRoleName(r.name + ' 2'); c.from = r.id;
+      c.color = ROLE_COLORS[App.style.roles.length % ROLE_COLORS.length];
+      App.style.roles.splice(App.style.roles.indexOf(r) + 1, 0, c);
+      App.sel.role = c.id;
+      after(); App.changed();
+      toast(`Made “${c.name}” — change its sound below`);
+      return true;
+    }
+    App.sel.role = r.id;
+    $$('.track-item.sel').forEach((x) => x.classList.remove('sel'));
+    $$('.role-row').forEach((x) => x.classList.toggle('sel', x === row));
+    this.renderInst(); this.renderKeyboard();
+    if (act === 'rename') this.renameRole(r.id);
+    return true;
   },
 
   /* ---------- Game Style tab ---------- */
@@ -1083,15 +1170,7 @@ const UI = {
     sp.addEventListener('click', (e) => {
       if (this.styleEventsClick(e)) return;
       const act = e.target.dataset.act;
-      if (act === 'addRole') {
-        const k = $('#newRolePreset').value;
-        App.pushUndo();
-        const r = makeRole(k);
-        App.style.roles.push(r);
-        App.sel.role = r.id;
-        this.renderStyle(); this.renderAddTrack(); this.renderInst(); this.renderKeyboard(); App.changed();
-        return toast(`Added role “${r.name}”. Add it to a level with the sidebar's + Track menu.`);
-      }
+      if (act === 'openInstruments') { this.showView('library'); return; }
       if (act === 'saveFlavor') {
         App.pushUndo();
         const f = { id: uid(), name: App.song.name.replace(/^Level \d+\s*[—-]\s*/, '') || 'Flavor', ...Flavors.ofScore() };
@@ -1118,26 +1197,9 @@ const UI = {
         }
         return;
       }
-      const row = e.target.closest('.role-row');
-      if (!row) return;
-      const r = App.role(row.dataset.id);
-      if (act === 'del') {
-        App.pushUndo();
-        App.style.roles = App.style.roles.filter((x) => x !== r);
-        if (App.sel.role === r.id) App.sel.role = null;
-        this.renderStyle(); this.renderAddTrack(); this.renderInst(); App.changed();
-        return undoToast(`Removed role “${r.name}” from the game style`);
-      }
-      App.sel.role = r.id;
-      $$('.track-item.sel').forEach((x) => x.classList.remove('sel'));
-      $$('.role-row').forEach((x) => x.classList.toggle('sel', x === row));
-      this.renderInst(); this.renderKeyboard();
-      if (act === 'rename') this.renameRole(r.id);
     });
     sp.addEventListener('dblclick', (e) => {
       if (this.styleEventsDblclick(e)) return;
-      const row = e.target.closest('.role-row');
-      if (row && !e.target.closest('button')) this.renameRole(row.dataset.id);
     });
     sp.addEventListener('change', (e) => {
       const k = e.target.dataset.def;
@@ -1159,7 +1221,7 @@ const UI = {
     const r = App.role(id);
     inlineRename($(`.role-row[data-id="${id}"] .name`), r.name, (v) => {
       if (v) { App.pushUndo(); r.name = uniqueRoleName(v); App.changed(); }
-      this.renderStyle(); this.renderAddTrack(); this.renderInst(); this.renderTracks(); this.renderBeat();
+      this.renderLibrary(); this.renderAddTrack(); this.renderInst(); this.renderTracks(); this.renderBeat();
     });
   },
   renderStyle() {
@@ -1167,23 +1229,9 @@ const UI = {
     const opt = (list, cur) => list.map(([v, n]) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${n}</option>`).join('');
     $('#stylePanel').innerHTML = `
       <section class="style-sec">
-        <h4 class="subhead">Instrument roles</h4>
-        <p class="muted">The game's instrument roster. Every level's tracks play these sounds, so changing a role here changes it in every level — except tracks a level has customized (✦). Click a role to edit its sound below and play it on the keyboard.</p>
-        <div class="role-list">${st.roles.map((r) => {
-          const u = App.roleUsage(r.id);
-          const custom = u.tracks - u.shared;
-          return `<div class="role-row ${App.sel.role === r.id ? 'sel' : ''}" data-id="${r.id}" title="Click to edit · double-click name to rename">
-            <span class="dot" style="background:${r.color}"></span>
-            <span class="name">${esc(r.name)}</span><button class="edit" data-act="rename" title="Rename role">✎</button>
-            <span class="snd">${esc(soundName(r))}</span>
-            <span class="muted use">${u.tracks ? `${u.tracks} track${u.tracks > 1 ? 's' : ''} · ${u.scores} level${u.scores > 1 ? 's' : ''}${custom ? ` · <span class="flavor">✦${custom} customized</span>` : ''}` : 'not used yet'}</span>
-            ${u.tracks ? '' : '<button class="x" data-act="del" title="Remove role (not used by any level)">✕</button>'}
-          </div>`;
-        }).join('')}</div>
-        <div class="row gap add-role">
-          <select id="newRolePreset">${Object.entries(SYNTH_PRESETS).map(([k, p]) => `<option value="${k}">${p.name}</option>`).join('')}<option value="drum">Drum kit</option></select>
-          <button data-act="addRole">+ Role</button>
-        </div>
+        <h4 class="subhead">Instruments</h4>
+        <p class="muted">The game's instruments (${st.roles.length}) are in the <b>Library</b> tab now: each has its own sound and default mix. Add, duplicate, rename and edit them there.</p>
+        <button data-act="openInstruments">Open the Library</button>
       </section>
       ${this.styleEventsHTML()}
       <section class="style-sec">
@@ -1250,7 +1298,7 @@ const UI = {
     const ww = W / nWhite;
     const start = 12 * (App.octave + 1);
     const tg = this.instTarget();
-    const t = tg && { type: tg.role.type, name: tg.track ? tg.track.name : 'Role: ' + tg.role.name };
+    const t = tg && { type: tg.role.type, name: tg.track ? tg.track.name : 'Instrument: ' + tg.role.name };
     const scale = SCALES[App.song.scale].steps.map((x) => (x + App.song.key) % 12);
     const inv = {};
     Object.entries(this.keyMap).forEach(([k, v]) => (inv[start + v] = k.toUpperCase()));
@@ -1437,10 +1485,10 @@ const UI = {
       this.view = b.dataset.view;
       $$('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
       $$('.view').forEach((v) => v.classList.toggle('on', v.id === 'view-' + this.view));
-      if (this.view !== 'style' && App.sel.role) {
-        // Role editing belongs to the Game Style tab; elsewhere the panel follows the selected track.
+      if (this.view !== 'library' && App.sel.role) {
+        // Instrument editing belongs to the Library tab; elsewhere the panel follows the selected track.
         App.sel.role = null;
-        this.renderTracks(); this.renderStyle(); this.renderInst(); this.renderKeyboard();
+        this.renderTracks(); this.renderLibrary(); this.renderInst(); this.renderKeyboard();
       }
       if (this.view === 'style') this.renderStyle();
       if (this.view === 'library') this.renderLibrary();

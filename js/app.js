@@ -41,9 +41,22 @@ function uniqueRoleName(name, style = App.project.style) {
 }
 function makeRole(kind, name, style = App.project.style) {
   const color = ROLE_COLORS[style.roles.length % ROLE_COLORS.length];
-  if (kind === 'drum') return { id: uid(), name: uniqueRoleName(name || 'Drums', style), color, type: 'drum', kit: 'classic', voices: defaultVoices() };
-  const p = SYNTH_PRESETS[kind] || SYNTH_PRESETS.piano;
-  return { id: uid(), name: uniqueRoleName(name || p.name, style), color, type: 'synth', preset: kind, synth: { ...p } };
+  let r;
+  if (kind === 'drum') r = { id: uid(), name: uniqueRoleName(name || 'Drums', style), color, type: 'drum', kit: 'classic', voices: defaultVoices() };
+  else {
+    const p = SYNTH_PRESETS[kind] || SYNTH_PRESETS.piano;
+    r = { id: uid(), name: uniqueRoleName(name || p.name, style), color, type: 'synth', preset: kind, synth: { ...p } };
+  }
+  r.mix = defaultInstMix(r);
+  return r;
+}
+/* An instrument's (role's) default mix: what a new track playing it starts with. */
+const INST_MIX_KEYS = ['vol', 'pan', 'drive', 'tone', 'rev', 'dly'];
+function defaultInstMix(role) {
+  const pre = role.preset || '';
+  return { vol: role.type === 'drum' ? 0.85 : 0.75, pan: 0, drive: 0, tone: 20000,
+    rev: role.type === 'drum' ? 0.08 : pre === 'pad' || pre === 'strings' ? 0.35 : 0.18,
+    dly: pre === 'pluck' || pre === 'lead' ? 0.2 : role.type === 'drum' ? 0 : 0.05 };
 }
 function roleOf(t) { return App.project.style.roles.find((r) => r.id === t.role); }
 /* The sound a track actually plays: its per-score override, else its role. Edits go to this object. */
@@ -57,11 +70,8 @@ function soundName(s) {
 }
 
 function makeTrack(role, name) {
-  const pre = role.preset || '';
   return { id: uid(), name: name || role.name, role: role.id, type: role.type, color: role.color, sound: null, layer: 'base',
-    vol: role.type === 'drum' ? 0.85 : 0.75, pan: 0, mute: false, solo: false, drive: 0, tone: 20000,
-    rev: role.type === 'drum' ? 0.08 : pre === 'pad' || pre === 'strings' ? 0.35 : 0.18,
-    dly: pre === 'pluck' || pre === 'lead' ? 0.2 : role.type === 'drum' ? 0 : 0.05 };
+    mute: false, solo: false, ...defaultInstMix(role), ...(role.mix || {}) };
 }
 function makePattern(name, bars = 2, kind = 'loop') { return { id: uid(), name, bars, drums: {}, notes: {}, kind, entrySting: null, origins: {} }; }
 function makeScore(name, style = App.project.style) {
@@ -92,6 +102,31 @@ function ensurePattern(pat, song = App.song) {
   });
 }
 function ensureAll(song = App.song) { song.patterns.forEach((p) => ensurePattern(p, song)); }
+
+/* A new track for an instrument that was duplicated from another: copy the beats (or notes) and layer
+   of a track in this level that plays the original (or the original's original), in every pattern.
+   Returns that source track, or null when the level has none. */
+function copyPartsFromOriginal(song, t) {
+  let fromId = (App.role(t.role) || {}).from, src = null;
+  const seen = new Set();
+  while (fromId && !seen.has(fromId) && !src) {
+    seen.add(fromId);
+    src = song.tracks.find((x) => x.role === fromId && x !== t && x.type === t.type) || null;
+    fromId = (App.role(fromId) || {}).from;
+  }
+  if (!src) return null;
+  song.patterns.forEach((p) => {
+    if (t.type === 'drum') p.drums[t.id] = clone(p.drums[src.id] || {});
+    else p.notes[t.id] = clone(p.notes[src.id] || []);
+  });
+  t.layer = src.layer;
+  ensureAll(song);
+  // Linked patterns: mark the copied part as an edit, so the next sync stores it in the library item
+  // (a part the library hasn't seen otherwise takes the library's — empty — version).
+  Library.ensureParts(song);
+  song.patterns.forEach((p) => { if (p.lib && p.libSig && p.libSig !== 'pull' && p.libSig.parts) p.libSig.parts[t.part] = '~copied'; });
+  return src;
+}
 
 function applyBeat(pat, trackId, beatName) {
   const b = BEAT_LOOPS[beatName] || {};
@@ -299,6 +334,21 @@ const App = {
       s.tracks.forEach((t) => { if (!s.layers.some((l) => l.id === t.layer)) t.layer = s.layers[0].id; });
       s.tracks.forEach((t) => { if (t.sound && t.sound.synth) t.sound.synth = Object.assign({}, SYNTH_PRESETS[t.sound.preset] || SYNTH_PRESETS.piano, t.sound.synth); });
       ensureAll(s);
+    });
+    // Instruments (roles) get a default mix: taken from the first track that plays them, else the defaults.
+    p.style.roles.forEach((r) => {
+      if (r.mix) { r.mix = Object.assign(defaultInstMix(r), r.mix); return; }
+      let t = null;
+      p.scores.some((s) => (t = s.tracks.find((x) => x.role === r.id)));
+      r.mix = defaultInstMix(r);
+      if (t) INST_MIX_KEYS.forEach((k) => { if (typeof t[k] === 'number') r.mix[k] = t[k]; });
+    });
+    // Copies made before instruments remembered their original ("Drums 2" from "Drums"): link them by name.
+    p.style.roles.forEach((r) => {
+      if (r.from) return;
+      const m = /^(.*\S)\s+\d+$/.exec(r.name);
+      const o = m && p.style.roles.find((x) => x !== r && x.name === m[1] && x.type === r.type);
+      if (o) r.from = o.id;
     });
     Library.migrate(p);
     GameEvents.migrate(p);

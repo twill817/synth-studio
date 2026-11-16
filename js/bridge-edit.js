@@ -528,8 +528,10 @@ Object.assign(BridgeAPI, {
       const t = makeTrack(r, name || (n ? `${r.name} ${n + 1}` : r.name));
       if (layer) t.layer = Ref.pick(s.layers, layer, 'layer').id;
       s.tracks.push(t);
+      ensureAll(s);
+      const src = copyPartsFromOriginal(s, t);
       Edit._show = { track: t };
-      return `Added track “${t.name}” (role ${r.name}, ${soundName(r)}) to ${s.name}.`;
+      return `Added track “${t.name}” (instrument ${r.name}, ${soundName(r)}) to ${s.name}.` + (src ? ` It plays the same ${t.type === 'drum' ? 'beats' : 'notes'} as “${src.name}” (copied, since ${r.name} was duplicated from its instrument).` : '');
     }, Edit.consumeShow());
   },
 
@@ -609,26 +611,42 @@ Object.assign(BridgeAPI, {
     }, Edit.consumeShow());
   },
 
-  manageRole({ action, role, name, preset }) {
+  manageRole({ action, role, name, preset, mix }) {
     return Edit.run(undefined, () => {
+      const mixNote = (r) => (mix ? ` Default mix: ${applyParams(r.mix, mix, TRACK_PARAMS, 'mix').join(', ')}.` : '');
       if (action === 'add') {
         const k = preset === 'drum' ? 'drum' : Object.keys(SYNTH_PRESETS).find((x) => x === preset || SYNTH_PRESETS[x].name.toLowerCase() === String(preset || '').toLowerCase());
         if (!k) throw new Error(`Give preset: an instrument preset (${Object.values(SYNTH_PRESETS).map((x) => x.name).join(', ')}) or "drum".`);
         const r = makeRole(k, name);
         App.style.roles.push(r);
-        return `Added role “${r.name}” (${soundName(r)}) to the game style. Add it to a score with add_track.`;
+        App.sel.role = r.id;
+        return `Added the instrument “${r.name}” (${soundName(r)}) to the Library.${mixNote(r)} Add it to a level with add_track.`;
       }
-      const r = Ref.pick(App.style.roles, role, 'role');
-      if (!r) throw new Error('Which role?');
-      if (action === 'rename') { if (!name) throw new Error('Give the new name.'); const old = r.name; r.name = uniqueRoleName(name); return `Renamed role “${old}” to “${r.name}”.`; }
+      const r = Ref.pick(App.style.roles, role, 'instrument');
+      if (!r) throw new Error('Which instrument?');
+      if (action === 'rename') { if (!name) throw new Error('Give the new name.'); const old = r.name; r.name = uniqueRoleName(name); return `Renamed the instrument “${old}” to “${r.name}”.${mixNote(r)}`; }
+      if (action === 'duplicate') {
+        const c = clone(r);
+        c.id = uid(); c.name = uniqueRoleName(name || r.name + ' 2'); c.from = r.id;
+        c.color = ROLE_COLORS[App.style.roles.length % ROLE_COLORS.length];
+        App.style.roles.splice(App.style.roles.indexOf(r) + 1, 0, c);
+        App.sel.role = c.id;
+        return `Made the instrument “${c.name}”, a copy of “${r.name}” (same sound and mix).${mixNote(c)} Change its sound with set_sound (scope game_style, role “${c.name}”).`;
+      }
+      if (action === 'mix') {
+        if (!mix) throw new Error(`Give mix: ${Object.keys(TRACK_PARAMS).join(', ')}.`);
+        App.sel.role = r.id;
+        return `“${r.name}” default mix (what new tracks playing it start with; existing tracks keep theirs):${mixNote(r).replace(' Default mix:', '')}`;
+      }
       if (action === 'remove') {
         const u = App.roleUsage(r.id);
-        if (u.tracks) throw new Error(`“${r.name}” is used by ${u.tracks} track(s) in ${u.scores} score(s); remove those tracks first.`);
+        if (u.tracks) throw new Error(`“${r.name}” is used by ${u.tracks} track(s) in ${u.scores} level(s); remove those tracks first.`);
         App.style.roles = App.style.roles.filter((x) => x !== r);
-        return `Removed unused role “${r.name}”.`;
+        if (App.sel.role === r.id) App.sel.role = null;
+        return `Removed the unused instrument “${r.name}”.`;
       }
-      throw new Error('action must be add, rename or remove.');
-    }, { view: 'style' });
+      throw new Error('action must be add, rename, duplicate, mix or remove.');
+    }, { view: 'library' });
   },
 
   setMix({ score, scope, values, action }) {

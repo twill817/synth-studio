@@ -56,7 +56,8 @@ Each step ships on its own, keeps the app working, and is checked against the mu
    - ✅ **4b, Unity** (done 2026-11-12): `unity/AdaptiveMusicPlayer.cs` (PlaySting follows the sting's play/then/at/duck; over the music turns only the loop down; test panel lists events) and `unity/MusicCues.cs` (table rows override the exported cues). Compile-checked against Unity 6000.6.7f1's DLLs and copied into DeadDerby's `Assets/_Project/Audio/Music/`. Play-tested in ProvingTrench (2026-11-12): compiles in Unity, reads the old version 1 export, all seven events from the scene's table work, and *over the music* (loop turns down, comes back) and *then go to* work when set on the sting; Console clean. DeadDerby's seven events and cues are in the Synth project; the version 2 export is in DeadDerby and every event runs from it (`(export)` in the Console) when the scene's table is empty. The scene's MusicCues table was then emptied (ProvingTrench saved), so the export drives the music; the game's own RunWaiting at scene start runs from the export.
    - Unity work: play a sting *over* the music without stopping the loop (with ducking). "Instead, then back" is PlaySting; "End the music" is EndWithSting.
 5. ✅ **Several instruments at once: the layered roll** (done 2026-11-12, as designed below; code in `js/roll.js` — hiddenSet / onChip / drawDrums — and `UI.renderRollBar`). The piano roll shows the tracks you pick in their own colours, with a drum strip on top. Clicking a chip keeps the roll's scroll position (the sidebar still centres on the track's notes). Other tracks' notes can't be clicked.
-6. **Later:** maybe weave a theme into whatever is playing instead of a separate sting; maybe a stacked-lanes overview of the whole pattern.
+6. **Instruments, tracks, curves and events** (asked 2026-11-15; designed below, not started). Instruments are authored in the Library; a *track* is a piece of music that combines instruments and is saved in the Library; curves shape a track and each instrument in it over time; tracks are assigned to game events. Four parts, each shipping on its own: 6a instruments, 6b tracks own their instruments, 6c curves, 6d events on tracks.
+7. **Later:** maybe weave a theme into whatever is playing instead of a separate sting; maybe a stacked-lanes overview of the whole pattern.
 
 ## Step 2 design: the library
 
@@ -237,6 +238,64 @@ No changes: tools name the track they write to. `get_pattern` is unchanged.
 ### Not in this step
 Editing drums inside the roll, and the stacked-lanes overview (options C and B in the step 5 sketch).
 
+## Step 6 design: instruments, tracks, curves, events
+
+The user's words (2026-11-15): author individual instruments with their own settings in the Library; combine instruments into a track and save tracks in the Library; adjust a track with curves (volume and more) over its length; assign tracks to game events. Their answers: a *track* is **a piece of music** (several instruments playing together); library instruments **replace the Game Style's roles**; curves shape **volume, pan / reverb / delay, filter, and pitch / speed**; curves go on **the whole track and on each instrument in it**.
+
+### Words (app and docs)
+| Today | Becomes |
+|---|---|
+| Instrument role (Game Style) | **Instrument** (Library) |
+| Segment / sting (pattern, library item) | **Track**: a *loop track* or a *sting track* (Unity's manifest keeps `segments` / `stings`) |
+| A level's track (sidebar lane: role + sound + mix) | An **instrument in the track** (a *part*); the sidebar lists the open track's instruments |
+| Track mixer settings per level | The instrument's mix, set in the track (with curves), plus the level's overall mix |
+
+### Today
+Roles (Drums, Bass, Keys, Pad, Lead) live in the Game Style: each is a sound. A level has *tracks* (lanes): each plays a role, can customize its sound for the level, and has the level's mix (volume, pan, drive, tone, reverb, delay) and intensity layer. Library segments and stings store their notes per role. Game events point at a level's segment or sting.
+
+### 6a. Instruments in the Library
+✅ Done 2026-11-15. Library → Instruments (`UI.instrumentsHTML` / `instrumentsClick`); default mix on each instrument (`role.mix`, `defaultInstMix`, migrated from the first track that plays it; new tracks start with it); Duplicate; Delete disabled while used (tooltip says where); Game Style keeps a pointer; wording: *From the library*, *Back to the library version*, *Make this the library version*. Data and tool names still say `role` (`manage_role` gains duplicate and mix); they change with 6b. A copy remembers its original (`role.from`; older copies are linked by name, "Drums 2" → "Drums"): adding a track for it copies the beats/notes and layer of a track playing the original in that level, in every pattern (`copyPartsFromOriginal`; the copied parts count as edits, so the library keeps them). Asked by the user 2026-11-15.
+
+- The Library gets an **Instruments** section (above Tracks and Melodies). Each instrument: name, colour, kind (synth or drums), all of its sound settings (preset, oscillators, envelope, filter, vibrato, level; or kit, pads, tuning, samples), and its **default mix** (volume, pan, drive, tone, reverb, delay). + Instrument (synth preset or drum kit), Duplicate, Rename, Delete (blocked while a track uses it, with where).
+- Any number of instruments; two can share a preset with different settings ("Lead — soft", "Lead — bright").
+- The Game Style's *Instrument roles* list moves here (must-keep: list, select to edit, rename, sound, usage, remove, + Role). The sound panel at the bottom edits the selected instrument.
+- **A level can still customize an instrument** (decision 2): *Customize for this level* / *Back to the library version*, as now.
+- Migration: each role becomes an instrument with the same id, so nothing else changes in 6a. A role's mix defaults come from the tracks that play it.
+
+### 6b. Tracks own their instruments
+- A track (loop or sting) lists **its instruments** (parts): each part is an instrument plus its notes or beat, and its mix (volume, pan, drive, tone, reverb, delay, mute, solo). The same instrument can appear twice (e.g. two Lead parts).
+- The sidebar's *Tracks* section becomes **Instruments in this track**: select, colour, name, M, S, remove; **+ Instrument** picks one from the Library (or makes a new one). The layered roll's chips are the same list.
+- **Save to the Library**: tracks already live in the Library (step 2). A track's instruments and mix now travel with it, so placing it in another level brings its sound with it. *Make a version for this level* still splits one off.
+- A level no longer has its own lane list: its instruments are whatever its tracks use. The level keeps: key, scale, BPM, swing, the map, intensity layers, its overall mix, and per-instrument customizations.
+- **Intensity layers**: each part in a track picks its layer (default: the layer that instrument used in this level before), shown on the part in the sidebar and in Mixer & FX.
+- **Mixer & FX** shows the open track's parts (strips as now) and the level's master; *Customize* / *Back to the game style* stay for the master.
+- Migration: each level track becomes a part in every track of that level that has notes for it, with that level track's mix and layer. Library items get their parts' instruments and mix. Old projects open unchanged in sound.
+
+### 6c. Curves (automation)
+- Under the Beat grid and Piano Roll, a **Curves** lane (folds away). Pick what it shapes: **Volume, Pan, Reverb, Delay, Filter**, plus **Pitch** (instrument) or **Speed** (whole track).
+- **Whole track** (its own row, "Track") or **one instrument** (the selected part). A small marker on a part's chip and sidebar row shows it has curves.
+- Click to add a point, drag to move, double-click to delete, right-click for *Smooth* (spline) or *Straight* between points, *Clear curve*. Points snap to the grid's Snap setting. Values show while dragging (dB, %, Hz, semitones, % speed).
+- A curve runs over the track's length; a **loop track repeats its curves each time round**. A sting's curves run once.
+- **Playback, audio export and Unity export all include the curves**: they are baked into the rendered stems and stings, so the Unity player needs no change.
+- **Speed curves** change the track's length in time. Allowed on stings; on loop tracks, the level's change timing for that loop falls back to *end of segment* (the Unity player times beats and bars from one BPM), and the app says so.
+- Claude tool: `set_curve` (track, part or whole track, parameter, points, smooth).
+
+### 6d. Tracks on game events
+- In the track bar (above the editors): **Plays on** — the game events that start this track (a loop: *go to* it; a sting: *play* it the way its sting settings say). + Event, × to remove.
+- **The game decides; a level can override** (decision 2): an event's assignment is game-wide by default (e.g. RunStarted → *Chase* in every level that has it). A level can override what an event does (Simulate › *Edit events…*, as now: "Customized for this level" / "Back to the game style").
+- Game events (Game Style) and Simulate's buttons stay. The export's `cues` are written per level from the game-wide assignments plus the level's overrides, so MusicCues needs no change.
+- Claude tools: `set_cues` gains a game-wide scope; `set_events` unchanged.
+
+### Order and risk
+6a is mostly a move and a rename (low risk). 6b changes the data model under every editor, the mixer, the audio engine, the Unity export and most Claude tools (the biggest step; done with a migration and a test that every demo level renders the same audio before and after). 6c adds automation to the engine and the offline renderer. 6d is mostly UI over the existing cues.
+
+### Must-keep for step 6
+- ✅ Game Style → Instrument roles (list, select to edit, rename, sound, usage, remove, + Role) → Library → Instruments (+ Instrument, Duplicate).
+- Sidebar Tracks list (select, colour, name, rename, ✦ custom mark, M, S, delete, + Track with role picker) → Instruments in this track (same controls; + Instrument picks from the Library).
+- Mixer & FX per-track strips (Mute, Solo, Volume, Pan, Drive, Tone, Reverb, Delay) → per-part strips in the open track; intensity layer per part.
+- Instrument panel's scope bar (Customize for this level, Revert, Make this the game style) → Customize for this level / Back to the library version / Make this the library version.
+- Claude tools: `manage_role`, `add_track`, `remove_track`, `set_track`, `set_sound`, `set_mix`, `set_layers` change with 6a/6b (renamed to instruments and parts; the server instructions updated with them).
+
 ## Must-keep list
 
 Where every current control ends up. Tick each when its step ships.
@@ -300,7 +359,7 @@ Where every current control ends up. Tick each when its step ships.
 - Keys, octave ◀ ▶, target label, MIDI status, computer-keyboard playing → stays at the bottom
 
 ### Game Style tab → Game style page
-- Instrument roles: list, select to edit, rename, sound, usage, remove, + Role
+- Instrument roles: list, select to edit, rename, sound, usage, remove, + Role (✅ step 6a: → Library → Instruments)
 - ✅ Themes → Library (melodies), with play, rename, usage, delete; Game Style keeps a pointer to them
 - Flavors: list, rename, summary, Apply to this level, delete, Save this level's flavor
 - Defaults for new levels: Key, Scale, BPM

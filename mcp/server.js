@@ -181,7 +181,7 @@ const server = new McpServer(
   { name: 'synth-studio', version: '0.1.0' },
   { instructions:
       'Synth Studio is a browser music workstation for making a game\'s adaptive soundtrack (Unity game "DeadDerby"). ' +
-      'A project is the whole game: a Game Style (instrument roles, flavors, master mix) and a Library (every segment, sting and melody/theme), shared by scores (one per level). ' +
+      'A project is the whole game: a Game Style (flavors, master mix, game events) and a Library (instruments, and every segment, sting and melody/theme), shared by scores (one per level). Instruments were called "roles" — tool arguments still say role. ' +
       'Each score has tracks (each plays a role, optionally customized for that level), patterns placed from the library (segments that loop, or one-shot stings), ' +
       'and intensity layers. Placed patterns are linked: editing one changes it in every level that links it (tools report where); ' +
       'use library_item own_version for a level-only change, and place_pattern to reuse a pattern in another level instead of rewriting it. Positions use bar.beat.sixteenth (1-based); durations like 1/4, 1/8, 3/16, 1 bar. ' +
@@ -211,7 +211,7 @@ server.registerTool('status', {
 
 server.registerTool('get_project', {
   title: 'Describe the game project',
-  description: 'Overview of the whole game: Game Style (key, scale, tempo, instrument roles and where they are used, master mix), themes, flavors, and every score with its segments, stings and layers.',
+  description: 'Overview of the whole game: Game Style (key, scale, tempo, the Library\'s instruments — "roles" — and where they are used, master mix), themes, flavors, and every score with its segments, stings and layers.',
   inputSchema: {},
 }, forward('getProject'));
 
@@ -307,7 +307,7 @@ edit('set_layers', 'Set intensity layers', 'Define a score\'s intensity layers, 
   { score: scoreRef, layers: z.array(z.string()).optional().describe('Layer names, bottom to top. Existing layers are kept by name; tracks in removed layers move to the base.'),
     assign: z.record(z.string(), z.string()).optional().describe('{"Track name": "Layer name"}') }, 'setLayers');
 
-edit('add_track', 'Add a track', 'Add a track that plays one of the game style\'s roles (see get_project), optionally on a given layer.',
+edit('add_track', 'Add a track', 'Add a track that plays one of the Library\'s instruments (role: its name; see get_project), optionally on a given layer. It starts with the instrument\'s default mix. If the instrument was duplicated from another one, the new track copies the beats/notes of a track playing the original.',
   { score: scoreRef, role: z.string(), name: z.string().optional(), layer: z.string().optional() }, 'addTrack');
 
 edit('set_track', 'Change a track', 'Rename, mute/solo, move to a layer, or change mixer settings: volume (0–1.2), pan (−1…1), drive (0–1), tone (low-pass Hz, 200–20000), reverb (send 0–1), delay (send 0–1).',
@@ -317,15 +317,16 @@ edit('set_track', 'Change a track', 'Rename, mute/solo, move to a layer, or chan
 edit('remove_track', 'Remove a track', 'Remove a track and its notes from a score.', { score: scoreRef, track: trackRef }, 'removeTrack');
 
 // ----- sound, game style, flavors
-edit('set_sound', 'Change a sound', 'Change an instrument or drum sound. scope "level" changes it for one track in this score only (its flavor — the default way to give a level its own colour); scope "game_style" changes the role for every score that shares it (use for game-wide decisions; the result lists exactly what it reaches). Give a preset (Piano, Electric Piano, Organ, Synth Bass, Sub Bass, Warm Pad, Strings, Square Lead, Pluck, Bell, Synth Brass), a kit for drums (Classic Analog, Punchy Electro, Deep Boom, Lo-Fi Dusty, Room Kit), and/or params: wave1/wave2 (sine, triangle, sawtooth, square), osc2_pitch (−24…24 st), detune (0–50 cents), osc_mix (0–1), octave (−2…2), attack/decay/release (s), sustain (0–1), cutoff (40–18000 Hz), resonance (0–20), filter_env (0–6 oct), filter_decay (s), vibrato_rate (Hz), vibrato_depth (cents), level (0–1.6).',
-  { score: scoreRef, scope: z.enum(['level', 'game_style']), track: z.string().optional(), role: z.string().optional().describe('For game_style: role name (or give a track that plays it).'),
+edit('set_sound', 'Change a sound', 'Change an instrument or drum sound. scope "level" changes it for one track in this score only (its flavor — the default way to give a level its own colour); scope "game_style" changes the Library instrument (role) for every score that shares it (use for game-wide decisions; the result lists exactly what it reaches). Give a preset (Piano, Electric Piano, Organ, Synth Bass, Sub Bass, Warm Pad, Strings, Square Lead, Pluck, Bell, Synth Brass), a kit for drums (Classic Analog, Punchy Electro, Deep Boom, Lo-Fi Dusty, Room Kit), and/or params: wave1/wave2 (sine, triangle, sawtooth, square), osc2_pitch (−24…24 st), detune (0–50 cents), osc_mix (0–1), octave (−2…2), attack/decay/release (s), sustain (0–1), cutoff (40–18000 Hz), resonance (0–20), filter_env (0–6 oct), filter_decay (s), vibrato_rate (Hz), vibrato_depth (cents), level (0–1.6).',
+  { score: scoreRef, scope: z.enum(['level', 'game_style']), track: z.string().optional(), role: z.string().optional().describe('For game_style: the instrument\'s name (or give a track that plays it).'),
     preset: z.string().optional(), kit: z.string().optional(), params: z.record(z.string(), z.union([z.number(), z.string()])).optional() }, 'setSound');
 
-edit('sound_scope', 'Level sound vs game style', 'For one track: "customize" gives it its own copy of its role\'s sound in this score; "revert" returns it to the game style; "promote" makes its custom sound the game style for that role (reaches every score sharing it — result lists them).',
+edit('sound_scope', 'Level sound vs library instrument', 'For one track: "customize" gives it its own copy of its instrument\'s sound in this score; "revert" returns it to the library version; "promote" makes its custom sound the library instrument\'s sound (reaches every score sharing it — result lists them).',
   { score: scoreRef, track: trackRef, action: z.enum(['customize', 'revert', 'promote']) }, 'soundScope');
 
-edit('manage_role', 'Manage game-style roles', 'Add a role to the game style (preset name, or "drum"), rename one, or remove one that no score uses.',
-  { action: z.enum(['add', 'rename', 'remove']), role: z.string().optional(), name: z.string().optional(), preset: z.string().optional() }, 'manageRole');
+edit('manage_role', 'Manage the Library\'s instruments', 'Instruments (called roles in arguments) live in the Library: each has its own sound and a default mix that new tracks start with. add (preset name, or "drum"), rename, duplicate (a copy to vary, e.g. "Lead — soft"), mix (set the default mix), or remove one that no level uses. mix: volume (0–1.2), pan (−1…1), drive (0–1), tone (Hz 200–20000), reverb (0–1), delay (0–1). Change an instrument\'s sound with set_sound scope game_style.',
+  { action: z.enum(['add', 'rename', 'duplicate', 'mix', 'remove']), role: z.string().optional().describe('The instrument (name)'), name: z.string().optional(), preset: z.string().optional(),
+    mix: z.record(z.string(), z.number()).optional() }, 'manageRole');
 
 edit('set_mix', 'Change the master mix', 'Change the master mix: scope "level" gives this score its own mix (e.g. a cave with a bigger reverb); scope "game_style" changes the shared mix for every score without its own. values: volume, eq_low/eq_mid/eq_high (dB ±12), compressor (threshold dB, −40…0), reverb_size (s, 0.3–6), reverb_return (0–1.5), delay_time (1/16, 1/8, 1/8 dotted, 1/4, 1/4 dotted, 1/2), delay_feedback (0–0.9). Or action "revert" (back to the style mix) / "promote" (make this level\'s mix the style).',
   { score: scoreRef, scope: z.enum(['level', 'game_style']).optional(), values: z.record(z.string(), z.union([z.number(), z.string()])).optional(), action: z.enum(['revert', 'promote']).optional() }, 'setMix');
