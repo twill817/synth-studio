@@ -283,6 +283,14 @@ Roles (Drums, Bass, Keys, Pad, Lead) live in the Game Style: each is a sound. A 
 - Claude tools keep their names for now (`add_track` adds an instrument to a track, `set_track` changes a part's mix in a track — the open one unless `pattern` is given, `remove_track` removes it from a track); `get_score` lists each track's parts.
 
 ### 6c. Curves (automation)
+✅ Done 2026-11-15 (`js/curves.js` for the panel; `CURVE_PARAMS` / `evalCurve` in app.js; `applyCurves`, `resetAuto`, `pitchBend` in audio.js; Claude's `set_curve`). As designed, with these choices:
+- Values: Volume / Reverb / Delay are % of the mix setting (100 = as mixed); Pan moves the sound on top of its mix pan; Filter is an extra low-pass (Hz); Pitch in semitones bends held notes (drums: retuned per hit); Speed is % tempo.
+- Smooth = monotone cubic (never overshoots); straight per point. Curves are sampled every 16th and ramped in between (preview and offline renders alike).
+- **Speed is for stings only** (not loops, as the design first allowed): a loop must stay on the level's tempo for the game's beat/bar switching, and the Unity player has no per-segment timing yet. A sting's speed changes its length, and the Unity export writes the real length. A sting *over the music* keeps the loop's clock in the preview (its rendered audio for Unity has the speed).
+- A sting over the music doesn't steer the curves of instruments the loop also plays.
+- The panel is folded by default; the piano roll keeps at least 120 px and the editor scrolls in very short windows.
+- Checked: no curves = audio unchanged from before (≤1.3%); a volume swell rises across the loop; a −5 st pitch curve lowers the pitch by the expected ratio; a 200% sting plays (and exports) in half the time; curves travel through the Library both ways; panel add / drag / straight / delete with one undo step each; live play and Simulate without errors.
+
 - Under the Beat grid and Piano Roll, a **Curves** lane (folds away). Pick what it shapes: **Volume, Pan, Reverb, Delay, Filter**, plus **Pitch** (instrument) or **Speed** (whole track).
 - **Whole track** (its own row, "Track") or **one instrument** (the selected part). A small marker on a part's chip and sidebar row shows it has curves.
 - Click to add a point, drag to move, double-click to delete, right-click for *Smooth* (spline) or *Straight* between points, *Clear curve*. Points snap to the grid's Snap setting. Values show while dragging (dB, %, Hz, semitones, % speed).

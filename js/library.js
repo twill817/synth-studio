@@ -59,6 +59,7 @@ const Library = {
     INST_MIX_KEYS.forEach((k) => (m[k] = x[k]));
     m.layer = (song.layers.find((l) => l.id === x.layer) || song.layers[0]).name;
     m.mute = !!x.mute; m.solo = !!x.solo;
+    if (hasCurves(x.curves)) m.curves = clone(x.curves);
     return m;
   },
   mixIn(song, m, t) {
@@ -69,6 +70,7 @@ const Library = {
       x.layer = L ? L.id : song.layers[0].id;
       x.mute = !!m.mute; x.solo = !!m.solo;
     }
+    if (m && hasCurves(m.curves)) x.curves = clone(m.curves); else delete x.curves;
     x.t = t.id;
     return x;
   },
@@ -88,7 +90,7 @@ const Library = {
       const o = p.origins && p.origins[t.id];
       if (o) origins[t.part] = { ...o };
     });
-    return { bars: p.bars, kind: this.kindOf(p), parts, origins, order };
+    return { bars: p.bars, kind: this.kindOf(p), parts, origins, order, curves: hasCurves(p.curves) ? clone(p.curves) : null };
   },
   /* Short fingerprint of anything JSON-able (FNV-1a), so undo snapshots stay small. */
   hash(o) {
@@ -100,7 +102,7 @@ const Library = {
   sig(c) {
     const parts = {};
     Object.keys(c.parts).forEach((k) => (parts[k] = this.hash([c.parts[k], c.origins[k] || null])));
-    return { m: this.hash([c.bars, c.kind, c.order || null]), parts };
+    return { m: this.hash([c.bars, c.kind, c.order || null, c.curves || null]), parts };
   },
   same(a, b) { return JSON.stringify(a) === JSON.stringify(b); },
 
@@ -132,7 +134,7 @@ const Library = {
       order.push(k);
       if (item.origins && item.origins[k]) origins[k] = { ...item.origins[k] };
     });
-    return { bars: item.bars, kind: item.kind, parts, origins, order };
+    return { bars: item.bars, kind: item.kind, parts, origins, order, curves: hasCurves(item.curves) ? clone(item.curves) : null };
   },
 
   /* Write captured level content into a level pattern. */
@@ -140,6 +142,7 @@ const Library = {
     p.bars = c.bars;
     p.kind = c.kind === 'sting' ? 'sting' : 'loop';
     p.drums = {}; p.notes = {}; p.origins = {}; p.parts = [];
+    if (c.curves) p.curves = clone(c.curves); else delete p.curves;
     (c.order || Object.keys(c.parts)).forEach((k) => {
       const part = c.parts[k], t = this.laneFor(song, k);
       if (!t || !part) return;
@@ -156,6 +159,7 @@ const Library = {
     const d = -this.offset(song, item);
     if (meta) {
       item.bars = c.bars; item.kind = c.kind; item.order = c.order.slice();
+      if (c.curves) item.curves = clone(c.curves); else delete item.curves;
       Object.keys(item.parts).forEach((k) => { if (!c.order.includes(k)) { delete item.parts[k]; if (item.origins) delete item.origins[k]; } });
     }
     item.origins = item.origins || {};
@@ -170,7 +174,7 @@ const Library = {
   /* A new library item from a level pattern (written in the level's key). */
   create(p, song, name) {
     const c = this.capture(p, song);
-    const item = { id: uid(), name: this.uniqueName(name || p.name), kind: c.kind, bars: c.bars, key: song.key, scale: song.scale, order: c.order.slice(), parts: {}, origins: {} };
+    const item = { id: uid(), name: this.uniqueName(name || p.name), kind: c.kind, bars: c.bars, key: song.key, scale: song.scale, order: c.order.slice(), parts: {}, origins: {}, ...(c.curves ? { curves: clone(c.curves) } : {}) };
     Object.entries(c.parts).forEach(([k, part]) => (item.parts[k] = clone(part)));
     item.origins = clone(c.origins);
     this.items().push(item);

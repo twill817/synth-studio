@@ -337,7 +337,7 @@ const Roll = {
 
   draw(pos) {
     if (!this.grid || UI.view !== 'roll') return;
-    if (!pos) { this.renderThemeBar(); UI.renderRollBar(); } // skip during playback frames; nothing there changes
+    if (!pos) { this.renderThemeBar(); UI.renderRollBar(); Curves.render(); } // skip during playback frames; nothing there changes
     const t = this.track();
     const pat = App.pattern();
     const steps = pat.bars * 16;

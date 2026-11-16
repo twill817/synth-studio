@@ -119,6 +119,7 @@ const UI = {
     this.initExport();
     this.initShortcuts();
     Roll.init();
+    Curves.init();
     this.renderAll();
     requestAnimationFrame(() => this.frame());
     window.addEventListener('resize', () => { this.renderKeyboard(); Roll.draw(); });
@@ -535,6 +536,7 @@ const UI = {
         <span class="dot" style="background:${t.color}"></span>
         <span class="name">${esc(t.name)}</span>
         ${t.sound ? '<span class="flavor" title="Custom sound for this level">✦</span>' : ''}
+        ${hasCurves(x.curves) ? '<span class="curve-mark" title="Has curves in this track">〰</span>' : ''}
         <button class="edit" data-act="rename" title="Rename">✎</button>
         <button class="ms m ${x.mute ? 'on' : ''}" data-act="m" title="Mute in this track">M</button>
         <button class="ms s ${x.solo ? 'on' : ''}" data-act="s" title="Solo in this track">S</button>
@@ -660,6 +662,7 @@ const UI = {
     this.renderPatterns(); this.renderBeat(); this.renderArrange(); Roll.draw(); App.changed();
   },
   renderBeat() {
+    Curves.render();
     const t = this.drumTrack();
     const drums = partLanes(App.song, App.pattern()).filter((x) => x.type === 'drum');
     $('#beatTrack').innerHTML = drums.map((d) => `<option value="${d.id}" ${t && d.id === t.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
@@ -1510,6 +1513,7 @@ const UI = {
       if (this.view === 'style') this.renderStyle();
       if (this.view === 'library') this.renderLibrary();
       if (this.view === 'roll') Roll.scrollToNotes();
+      Curves.render();
     }));
   },
 
@@ -1526,7 +1530,12 @@ const UI = {
         $$('.arr-block').forEach((e) => e.classList.toggle('playing', App.mode === 'song' && +e.dataset.k === pos.block));
       }
       if (this.view === 'roll') Roll.draw(pos);
-    } else this._playPat = this._playBlock = null;
+      if (this.view === 'roll' || this.view === 'beat') Curves.draw(pos);
+      this._curvesPlayed = true;
+    } else {
+      this._playPat = this._playBlock = null;
+      if (this._curvesPlayed) { this._curvesPlayed = false; Curves.draw(); }
+    }
     this.markMap(pos);
     this.drawScope();
   },

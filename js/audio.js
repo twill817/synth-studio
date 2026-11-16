@@ -81,10 +81,57 @@ function buildGraph(ctx, song, opts = {}) {
   g.dlyLp = mk('lowpass', { frequency: 3500 });
   g.dlyIn.connect(g.dly); g.dly.connect(g.dlyLp); g.dlyLp.connect(g.dlyFb); g.dlyFb.connect(g.dly);
   g.dlyLp.connect(g.bus);
+  // The whole track's curves (step 6c): every instrument passes through here on its way to the bus.
+  g.trkIn = mk('gain');
+  g.trkTone = mk('lowpass', { frequency: 20000, Q: 0.7 });
+  g.trkPan = ctx.createStereoPanner();
+  g.trkRev = mk('gain'); g.trkDly = mk('gain');
+  g.trkIn.connect(g.trkTone); g.trkTone.connect(g.trkPan); g.trkPan.connect(g.bus);
+  g.trkRev.connect(g.revIn); g.trkDly.connect(g.dlyIn);
 
   applyMaster(g, song, true);
   song.tracks.forEach((t) => addTrackNodes(g, t, song));
   return g;
+}
+
+/* ---------- curves (automation) ---------- */
+/* The AudioParam a curve drives: the whole track's (n = null) or one instrument's channel. */
+function curveParam(g, n, param) {
+  if (!n) return { vol: g.trkIn.gain, pan: g.trkPan.pan, rev: g.trkRev.gain, dly: g.trkDly.gain, cut: g.trkTone.frequency }[param];
+  return { vol: n.autoGain.gain, pan: n.autoPan.pan, rev: n.revA.gain, dly: n.dlyA.gain, cut: n.autoTone.frequency }[param];
+}
+function curveScale(param, v) { return param === 'cut' ? clamp(v, 20, 20000) : param === 'pan' ? clamp(v / 100, -1, 1) : Math.max(0, v / 100); }
+/* Put curve-driven params back to neutral (now, or at `at`). lanes: lane ids (default all); track: the whole-track nodes too. */
+function resetAuto(g, lanes, track, at) {
+  const set = (prm, v) => { if (at === undefined) { prm.cancelScheduledValues(0); prm.value = v; } else prm.setValueAtTime(v, Math.max(at, g.ctx.currentTime)); };
+  const neutral = (param) => curveScale(param, CURVE_PARAMS[param].def);
+  if (track) ['vol', 'pan', 'rev', 'dly', 'cut'].forEach((k) => set(curveParam(g, null, k), neutral(k)));
+  (lanes || Object.keys(g.tracks)).forEach((id) => { const n = g.tracks[id]; if (n) ['vol', 'pan', 'rev', 'dly', 'cut'].forEach((k) => set(curveParam(g, n, k), neutral(k))); });
+}
+/* Drive this step's curves: value at the step's start, ramping to the next step's by its end. */
+function applyCurves(g, song, pat, local, time, sd, over) {
+  const ramp = (prm, param, pts) => {
+    prm.setValueAtTime(curveScale(param, evalCurve(pts, local, param)), time);
+    prm.linearRampToValueAtTime(curveScale(param, evalCurve(pts, local + 1, param)), time + sd);
+  };
+  if (!over && pat.curves) ['vol', 'pan', 'rev', 'dly', 'cut'].forEach((k) => { if (pat.curves[k] && pat.curves[k].length) ramp(curveParam(g, null, k), k, pat.curves[k]); });
+  (pat.parts || []).forEach((x) => {
+    if (!x.curves || (over && partOf(g.pat, x.t))) return;   // a sting over the music doesn't steer the loop's instruments
+    const n = g.tracks[x.t];
+    if (!n) return;
+    ['vol', 'pan', 'rev', 'dly', 'cut'].forEach((k) => { if (x.curves[k] && x.curves[k].length) ramp(curveParam(g, n, k), k, x.curves[k]); });
+  });
+}
+/* Pitch curve of a part over one note: [{ t, c (cents) }] samples, every 16th, from its start to its end. */
+function pitchBend(x, nt, st, sd) {
+  const pts = x && x.curves && x.curves.pitch;
+  if (!pts || !pts.length) return null;
+  const out = [], end = nt.s + nt.l;
+  for (let s = nt.s; ; s = Math.min(end, Math.floor(s) + 1)) {
+    out.push({ t: st + (s - nt.s) * sd, c: evalCurve(pts, s, 'pitch') * 100 });
+    if (s >= end) break;
+  }
+  return out;
 }
 
 function setParam(g, param, value, instant, at) {
@@ -112,15 +159,21 @@ function addTrackNodes(g, t, song) {
     input: ctx.createGain(),
     drive: ctx.createWaveShaper(),
     tone: ctx.createBiquadFilter(),
+    autoTone: ctx.createBiquadFilter(),   // curves (step 6c) — neutral unless the playing track has one
     gain: ctx.createGain(),
+    autoGain: ctx.createGain(),
     pan: ctx.createStereoPanner(),
+    autoPan: ctx.createStereoPanner(),
     rev: ctx.createGain(),
+    revA: ctx.createGain(),
     dly: ctx.createGain(),
+    dlyA: ctx.createGain(),
   };
   n.drive.oversample = '2x';
   n.tone.type = 'lowpass'; n.tone.Q.value = 0.7;
-  n.input.connect(n.drive); n.drive.connect(n.tone); n.tone.connect(n.gain); n.gain.connect(n.pan);
-  n.pan.connect(g.bus); n.pan.connect(n.rev); n.rev.connect(g.revIn); n.pan.connect(n.dly); n.dly.connect(g.dlyIn);
+  n.autoTone.type = 'lowpass'; n.autoTone.Q.value = 0.7; n.autoTone.frequency.value = 20000;
+  n.input.connect(n.drive); n.drive.connect(n.tone); n.tone.connect(n.autoTone); n.autoTone.connect(n.gain); n.gain.connect(n.autoGain); n.autoGain.connect(n.pan); n.pan.connect(n.autoPan);
+  n.autoPan.connect(g.trkIn); n.autoPan.connect(n.rev); n.rev.connect(n.revA); n.revA.connect(g.trkRev); n.autoPan.connect(n.dly); n.dly.connect(n.dlyA); n.dlyA.connect(g.trkDly);
   n.input.__id = t.id; // used for open-hat choke grouping
   g.tracks[t.id] = n;
   applyTrack(g, t, song, true);
@@ -180,6 +233,9 @@ function setPiece(g, song, pat, at, over) {
   if (over) { if (g.over === pat) return; g.over = pat; }
   else { if (g.pat === pat) return; g.pat = pat; }
   song.tracks.forEach((t) => applyTrack(g, t, song, at === undefined, at));
+  // curves start from neutral in the new track (a sting over the music: only its own instruments)
+  if (over) resetAuto(g, partLanes(song, pat).filter((t) => !partOf(g.pat, t)).map((t) => t.id), false, at);
+  else resetAuto(g, null, true, at);
 }
 
 function syncGraphTracks(g, song) {
@@ -190,7 +246,7 @@ function syncGraphTracks(g, song) {
 }
 
 /* ---------- Synth voice ---------- */
-function synthVoice(ctx, dest, p, midi, vel, t, dur) {
+function synthVoice(ctx, dest, p, midi, vel, t, dur, bend) {
   const f = mtof(midi + 12 * (p.oct || 0));
   const peak = 0.2 * vel * (p.gain ?? 1);
   const a = Math.max(0.001, dur ? Math.min(p.a, dur * 0.9) : p.a);
@@ -229,6 +285,11 @@ function synthVoice(ctx, dest, p, midi, vel, t, dur) {
     lfo.connect(lg); lg.connect(o1.detune); lg.connect(o2.detune);
     lfo.start(t);
     nodes.push(lfo);
+  }
+  if (bend && bend.length) {      // a pitch curve over the note (cents, sampled every 16th)
+    const base2 = p.detune || 0;
+    o1.detune.setValueAtTime(bend[0].c, t); o2.detune.setValueAtTime(base2 + bend[0].c, t);
+    bend.slice(1).forEach((b) => { o1.detune.linearRampToValueAtTime(b.c, b.t); o2.detune.linearRampToValueAtTime(base2 + b.c, b.t); });
   }
   o1.start(t); o2.start(t);
   o1.onended = () => { [o1, o2, g1, g2, filt, env].forEach((x) => x.disconnect()); };
@@ -423,6 +484,7 @@ function metronomeClick(ctx, t, accent) {
 function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1, over = false) {
   const swingOff = (song.swing / 100) * stepDur * 0.5;
   setPiece(g, song, pat, time, over);
+  applyCurves(g, song, pat, local, time, stepDur, over);
   for (const t of partLanes(song, pat)) {
     if (!trackAudible(song, t, g.only, pat)) continue;
     const n = g.tracks[t.id];
@@ -436,7 +498,9 @@ function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1, over = f
       for (const v of DRUM_VOICES) {
         const vel = grid[v.id] && grid[v.id][local];
         if (vel > 0) {
-          const vs = s.voices[v.id];
+          let vs = s.voices[v.id];
+          const x = partOf(pat, t), pc = x && x.curves && x.curves.pitch;
+          if (pc && pc.length) vs = { ...vs, tune: (vs.tune || 0) + evalCurve(pc, local, 'pitch') };
           playDrum(g, n.input, v.id, st, vel * velScale, s.kit, vs, vs && vs.sample ? App.sampleBuffer(vs.sample) : null);
         }
       }
@@ -449,7 +513,7 @@ function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1, over = f
         const isOdd = Math.abs(nt.s - Math.round(nt.s)) < 1e-6 && Math.round(nt.s) % 2 === 1;
         const st = time + (nt.s - local) * stepDur + (isOdd ? swingOff : 0);
         const dur = nt.l * stepDur;
-        synthVoice(g.ctx, n.input, s.synth, nt.p, nt.v * velScale, st, dur).release(st + dur);
+        synthVoice(g.ctx, n.input, s.synth, nt.p, nt.v * velScale, st, dur, pitchBend(partOf(pat, t), nt, st, stepDur)).release(st + dur);
       }
     }
   }
@@ -468,7 +532,14 @@ const Engine = {
     return this.ctx;
   },
   /* While stopped, the open track sets the channels (what you hear when you play the keyboard). */
-  cur() { if (this.g && !Seq.playing) { this.g.pat = App.pattern(); this.g.over = null; } },
+  cur() {
+    if (!this.g || Seq.playing || (this.g.pat === App.pattern() && !this.g.over)) return;
+    this.g.pat = App.pattern(); this.g.over = null;
+    // drop track switches scheduled ahead by playback, then curves back to neutral (callers re-apply the mix)
+    Object.values(this.g.tracks).forEach((n) => [n.gain.gain, n.pan.pan, n.tone.frequency, n.rev.gain, n.dly.gain].forEach((prm) => prm.cancelScheduledValues(0)));
+    resetAuto(this.g, null, true);
+    App.song.tracks.forEach((t) => applyTrack(this.g, t, App.song));
+  },
   sync() { if (this.g) { this.cur(); syncGraphTracks(this.g, App.song); } },
   track(t) { if (this.g) { this.cur(); applyTrack(this.g, t, App.song); } },
   tracksAll() { if (this.g) { this.cur(); App.song.tracks.forEach((t) => applyTrack(this.g, t, App.song)); } },
@@ -619,13 +690,14 @@ const Seq = {
     this.playing = false;
     this.queue = [];
     this.adapt = null;
+    // curves and track switches scheduled ahead: back to the open track, neutral
+    if (Engine.g) { Engine.g.pat = null; Engine.g.over = null; Engine.tracksAll(); }
     if (this.ducked !== undefined && this.ducked !== 1) { this.ducked = 1; if (Engine.g) Engine.master(); }
     Live.finishRecording();
     UI.onTransport();
   },
   tick() {
     const ctx = Engine.ctx, song = App.song;
-    const stepDur = 60 / song.bpm / 4;
     while (this.nextTime < ctx.currentTime + 0.12) {
       if (App.mode === 'adaptive' && this.adapt) {
         const st = this.adaptiveStep();
@@ -636,6 +708,7 @@ const Seq = {
           return;
         }
         const { pat: pi, local } = st;
+        const stepDur = stepDurAt(song, song.patterns[pi], local);
         // A sting playing over the music: schedule it alongside the loop, and turn the loop down.
         const O = this.adapt.over;
         let under = 1;
@@ -666,6 +739,7 @@ const Seq = {
       }
       const loc = this.locate(this.stepPos);
       const pat = song.patterns[loc.pat];
+      const stepDur = stepDurAt(song, pat, loc.local);
       scheduleStep(Engine.g, song, pat, loc.local, this.nextTime, stepDur);
       if (App.metro && loc.local % 4 === 0) metronomeClick(ctx, this.nextTime, loc.local % 16 === 0);
       this.queue.push({ time: this.nextTime, step: this.stepPos, pat: loc.pat, local: loc.local, block: loc.block, dur: stepDur });
@@ -696,9 +770,7 @@ async function renderAudio({ source = 'song', repeats = 1, tail = 2, sampleRate 
 }
 /* Render any score's patterns back to back. `start` offsets the first step (seconds). */
 async function renderBlocks(song, blocks, { tail = 2, sampleRate = 44100, only = null, start = 0 } = {}) {
-  const stepDur = 60 / song.bpm / 4;
-  const totalSteps = blocks.reduce((a, i) => a + song.patterns[i].bars * 16, 0);
-  const dur = start + totalSteps * stepDur + tail;
+  const dur = start + blocks.reduce((a, i) => a + patternSeconds(song, song.patterns[i]), 0) + tail;
   const off = new OfflineAudioContext(2, Math.ceil(dur * sampleRate), sampleRate);
   const g = buildGraph(off, song, { only });
   if (blocks.length) { g.pat = song.patterns[blocks[0]]; song.tracks.forEach((t) => applyTrack(g, t, song, true)); }
@@ -706,8 +778,9 @@ async function renderBlocks(song, blocks, { tail = 2, sampleRate = 44100, only =
   for (const pi of blocks) {
     const pat = song.patterns[pi];
     for (let s = 0; s < pat.bars * 16; s++) {
-      scheduleStep(g, song, pat, s, time, stepDur);
-      time += stepDur;
+      const sd = stepDurAt(song, pat, s);
+      scheduleStep(g, song, pat, s, time, sd);
+      time += sd;
     }
   }
   return off.startRendering();

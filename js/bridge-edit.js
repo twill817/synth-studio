@@ -558,6 +558,48 @@ Object.assign(BridgeAPI, {
     }, Edit.consumeShow('mixer'));
   },
 
+  /* Curves (step 6c): a whole pattern's, or one instrument's in it. points: [{ at, value }] with at =
+     "bar.beat.16th" (or "end"); straight = straight lines between them (else smooth). */
+  setCurve({ score, pattern, target, param, points, straight, clear }) {
+    return Edit.run(score, (s) => {
+      const p = Ref.patternOrOpen(s, pattern);
+      const key = Object.keys(CURVE_PARAMS).find((k) => k === param || CURVE_PARAMS[k].name.toLowerCase() === String(param || '').toLowerCase());
+      if (!key) throw new Error(`param must be one of: ${Object.values(CURVE_PARAMS).map((x) => x.name).join(', ')}.`);
+      const P = CURVE_PARAMS[key];
+      const whole = !target || /^(track|whole( track)?|pattern|all)$/i.test(String(target).trim());
+      let owner, label;
+      if (whole) {
+        if (!TRACK_CURVES.includes(key)) throw new Error(`${P.name} curves go on one instrument (give target).`);
+        if (key === 'speed' && p.kind !== 'sting') throw new Error('Speed curves are for stings: a loop keeps the level\'s tempo so the game can switch on the beat.');
+        owner = p; label = `the whole of “${p.name}”`;
+      } else {
+        if (!PART_CURVES.includes(key)) throw new Error(`${P.name} curves go on the whole pattern (target "track").`);
+        const t = Ref.track(s, target);
+        owner = partOf(p, t);
+        if (!owner) throw new Error(`“${t.name}” isn't in “${p.name}”. Add it with add_track first.`);
+        label = `${t.name} in “${p.name}”`;
+      }
+      if (clear) {
+        if (owner.curves) { delete owner.curves[key]; if (!Object.keys(owner.curves).length) delete owner.curves; }
+        Edit._show = { pattern: p };
+        return `Cleared the ${P.name.toLowerCase()} curve on ${label}.`;
+      }
+      if (!points || !points.length) throw new Error('Give points: [{ at: "bar.beat.16th", value }], or clear: true.');
+      const end = p.bars * 16;
+      const pts = points.map((x) => {
+        const s0 = String(x.at).trim().toLowerCase() === 'end' ? end : MusicParse.pos(x.at);
+        if (s0 > end) throw new Error(`${x.at} is past the end of “${p.name}” (${p.bars} bar${p.bars > 1 ? 's' : ''}; use "end").`);
+        const v = +x.value;
+        if (!isFinite(v) || v < P.min || v > P.max) throw new Error(`${P.name} values run ${P.min}…${P.max} (${P.unit === '%' ? '% of the mix setting, 100 = as mixed' : P.unit}); got ${x.value}.`);
+        return straight ? { s: s0, v, k: 'line' } : { s: s0, v };
+      }).sort((a, b) => a.s - b.s);
+      owner.curves = owner.curves || {};
+      owner.curves[key] = pts;
+      Edit._show = { pattern: p };
+      return `${P.name} curve on ${label}: ${pts.map((x) => `${x.s >= end ? 'end' : `${Math.floor(x.s / 16) + 1}.${Math.floor((x.s % 16) / 4) + 1}.${(x.s % 4) + 1}`} ${curveText(key, x.v)}`).join(' → ')} (${straight ? 'straight' : 'smooth'}). It plays in the preview and is built into the exported audio.` + (p.kind !== 'sting' ? ' A loop repeats its curves each time round.' : '');
+    }, Edit.consumeShow('roll'));
+  },
+
   removeTrack({ score, pattern, track }) {
     return Edit.run(score, (s) => {
       const p = Ref.patternOrOpen(s, pattern), t = Ref.track(s, track);

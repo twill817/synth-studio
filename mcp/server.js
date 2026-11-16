@@ -314,6 +314,10 @@ edit('set_track', 'Change an instrument in a pattern', 'Rename an instrument (le
   { score: scoreRef, pattern: patternRef.optional(), track: trackRef, name: z.string().optional(), mute: z.boolean().optional(), solo: z.boolean().optional(), layer: z.string().optional(),
     settings: z.record(z.string(), z.number()).optional() }, 'setTrack');
 
+edit('set_curve', 'Shape a pattern over time (curves)', 'A curve changes a setting over a pattern\'s length — on the whole pattern (target "track") or one instrument in it (target: its name). param: Volume, Reverb, Delay (% of the mix setting: 100 = as mixed, 0–150/200), Pan (−100 left … 100 right, on top of the mix pan), Filter (low-pass cutoff Hz 100–20000), Pitch (semitones −12…12, one instrument; bends held notes), Speed (% tempo 50–200, whole pattern, stings only). points: [{ at: "bar.beat.16th" or "end", value }]. Smooth between points unless straight. A loop repeats its curves each time round. Built into the preview and every audio/Unity export. clear: true removes it.',
+  { score: scoreRef, pattern: patternRef.optional(), target: z.string().optional().describe('"track" (the whole pattern, default) or an instrument name'),
+    param: z.string(), points: z.array(z.object({ at: z.string(), value: z.number() })).optional(), straight: z.boolean().optional(), clear: z.boolean().optional() }, 'setCurve');
+
 edit('remove_track', 'Remove an instrument from a pattern', 'Remove an instrument and its notes from one pattern (default: the open one). An instrument no pattern in the level uses leaves the level.', { score: scoreRef, pattern: patternRef.optional(), track: trackRef }, 'removeTrack');
 
 // ----- sound, game style, flavors

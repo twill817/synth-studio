@@ -33,7 +33,7 @@ const UnityExport = {
   },
   async renderSting(song, pi, sr) {
     const pat = song.patterns[pi];
-    const musical = Math.round(pat.bars * 16 * this.stepSeconds(song) * sr);
+    const musical = Math.round(patternSeconds(song, pat) * sr);   // speed curves change a sting's length
     const buf = await renderBlocks(song, [pi], { tail: this.tailSeconds(song), sampleRate: sr, only: (t, m) => !!m, start: 0 });
     // Trim trailing silence after the musical end.
     const chs = [0, 1].map((c) => buf.getChannelData(c));

@@ -88,7 +88,7 @@ function laneMix(song, t, except) {
 /* A new part for lane t: the lane's usual mix in this level, else its instrument's default mix. */
 function newPart(song, t, except) {
   const m = laneMix(song, t, except);
-  if (m) return { ...clone(m), t: t.id };
+  if (m) { const x = { ...clone(m), t: t.id }; delete x.curves; return x; }   // curves belong to their own track
   const role = App.project.style.roles.find((r) => r.id === t.role);
   const mix = { ...defaultInstMix(role || t), ...((role && role.mix) || {}) };
   const part = { t: t.id, layer: song.layers[0].id, mute: false, solo: false };
@@ -129,6 +129,65 @@ function pruneLanes(song) {
   song.patterns.forEach((p) => gone.forEach((t) => { delete p.notes[t.id]; delete p.drums[t.id]; if (p.origins) delete p.origins[t.id]; }));
   return gone;
 }
+/* ---------- curves (step 6c): shape a track, or one instrument in it, over its length ----------
+   p.curves = { [param]: [{ s, v, k? }] } (the whole track); part.curves likewise (one instrument).
+   s = position in 16ths (0 … bars×16), v = value in the param's own units, k: 'line' = straight to
+   the next point (default: smooth). Volume / Reverb / Delay are % of the mix setting; Pan −100…100
+   (moves the sound on top of its mix pan); Filter = low-pass cutoff in Hz; Pitch in semitones
+   (instruments); Speed = % tempo (stings only, so loops stay on the level's beat for the game). */
+const CURVE_PARAMS = {
+  vol: { name: 'Volume', min: 0, max: 150, def: 100, unit: '%' },
+  pan: { name: 'Pan', min: -100, max: 100, def: 0, unit: 'pan' },
+  rev: { name: 'Reverb', min: 0, max: 200, def: 100, unit: '%' },
+  dly: { name: 'Delay', min: 0, max: 200, def: 100, unit: '%' },
+  cut: { name: 'Filter', min: 100, max: 20000, def: 20000, unit: 'Hz', log: true },
+  pitch: { name: 'Pitch', min: -12, max: 12, def: 0, unit: 'st', part: true },
+  speed: { name: 'Speed', min: 50, max: 200, def: 100, unit: '%', track: true, sting: true },
+};
+const TRACK_CURVES = ['vol', 'pan', 'rev', 'dly', 'cut', 'speed'];
+const PART_CURVES = ['vol', 'pan', 'rev', 'dly', 'cut', 'pitch'];
+function curveText(param, v) {
+  const P = CURVE_PARAMS[param];
+  if (P.unit === 'Hz') return v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + ' kHz' : Math.round(v) + ' Hz';
+  if (P.unit === 'pan') return Math.abs(v) < 1 ? 'C' : (v < 0 ? 'L' : 'R') + Math.round(Math.abs(v));
+  if (P.unit === 'st') return (v > 0 ? '+' : '') + (Math.round(v * 10) / 10) + ' st';
+  return Math.round(v) + '%';
+}
+/* A curve's value at position s (16ths): smooth = monotone cubic (no overshoot), or straight. */
+function evalCurve(pts, s, param) {
+  const P = CURVE_PARAMS[param];
+  if (!pts || !pts.length) return P.def;
+  const f = P.log ? Math.log : (x) => x, fi = P.log ? Math.exp : (x) => x;
+  const n = pts.length;
+  if (s <= pts[0].s) return pts[0].v;
+  if (s >= pts[n - 1].s) return pts[n - 1].v;
+  let i = 0;
+  while (i < n - 2 && s >= pts[i + 1].s) i++;
+  const a = pts[i], b = pts[i + 1], h = b.s - a.s;
+  if (h <= 0) return b.v;
+  const u = (s - a.s) / h, ya = f(a.v), yb = f(b.v);
+  if (a.k === 'line') return fi(ya + (yb - ya) * u);
+  const slope = (j) => (f(pts[j + 1].v) - f(pts[j].v)) / Math.max(1e-9, pts[j + 1].s - pts[j].s);
+  const tan = (j) => {
+    if (j === 0) return slope(0);
+    if (j === n - 1) return slope(n - 2);
+    const d0 = slope(j - 1), d1 = slope(j);
+    return d0 * d1 <= 0 ? 0 : 2 / (1 / d0 + 1 / d1);
+  };
+  const m0 = tan(i) * h, m1 = tan(i + 1) * h, u2 = u * u, u3 = u2 * u;
+  return fi((2 * u3 - 3 * u2 + 1) * ya + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * yb + (u3 - u2) * m1);
+}
+function hasCurves(c) { return !!c && Object.values(c).some((pts) => pts && pts.length); }
+/* Speed (stings): how fast step s plays (1 = the level's tempo). */
+function speedAt(p, s) { return p && p.kind === 'sting' && p.curves && p.curves.speed ? clamp(evalCurve(p.curves.speed, s + 0.5, 'speed'), 50, 200) / 100 : 1; }
+function stepDurAt(song, p, s) { return 60 / song.bpm / 4 / speedAt(p, s); }
+/* How long one pass of a track lasts, in seconds (speed curves included). */
+function patternSeconds(song, p) {
+  let t = 0;
+  for (let s = 0; s < p.bars * 16; s++) t += stepDurAt(song, p, s);
+  return t;
+}
+
 /* Projects from before step 6b kept mix, layer, mute and solo on the level's lanes. Each lane becomes a
    part of every track where it has notes (a track with no notes at all gets every lane), with that mix. */
 function migrateLanesToParts(s, roles) {
