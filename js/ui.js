@@ -121,7 +121,7 @@ const UI = {
     Roll.init();
     Curves.init();
     InstCurves.init();
-    Pop.init(); Drawer.init(); Sim.init();
+    Pop.init(); Drawer.init(); Sim.init(); Tips.init();
     this.renderAll();
     requestAnimationFrame(() => this.frame());
     window.addEventListener('resize', () => { this.renderKeyboard(); Roll.draw(); });
