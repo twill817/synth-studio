@@ -67,8 +67,8 @@ Object.assign(UI, {
   /* ---------- init ---------- */
   initMap() {
     const area = $('#mapArea');
-    // Folded or not is remembered per browser; the first time, short windows start folded so the editor has room.
-    let folded = window.innerHeight < 860;
+    // Folded or not is remembered per browser; it starts open (one slim row since step 7).
+    let folded = false;
     try { const v = localStorage.getItem('synthstudio.mapFolded'); if (v !== null) folded = v === '1'; } catch (e) { /* storage blocked */ }
     const fold = (on) => {
       area.classList.toggle('folded', on);
@@ -76,6 +76,7 @@ Object.assign(UI, {
       $('#btnMapFold').textContent = (on ? '▸' : '▾') + ' Map';
       try { localStorage.setItem('synthstudio.mapFolded', on ? '1' : '0'); } catch (e) { /* storage blocked */ }
       Roll.draw();
+      if (typeof Sim !== 'undefined') Sim.place();
     };
     fold(folded);
     $('#btnMapFold').onclick = () => fold(!area.classList.contains('folded'));
@@ -161,10 +162,10 @@ Object.assign(UI, {
     });
 
     // Pattern bar (above the Beat grid and Piano Roll): kind, entry sting, duplicate.
-    $('#workspace').addEventListener('pointerdown', (e) => { if (e.target.matches('.lib-bar select')) App.pushUndo(); });
+    $('#workspace').addEventListener('pointerdown', (e) => { if (e.target.matches('.lib-bar select, .lib-pop select')) App.pushUndo(); });
     $('#workspace').addEventListener('change', (e) => {
       const el = e.target, s = App.song, p = App.pattern();
-      if (!el.closest('.lib-bar') || !el.dataset.pb) return;
+      if (!el.closest('.lib-bar, .lib-pop') || !el.dataset.pb) return;
       if (el.dataset.pb === 'kind') {
         p.kind = el.value;
         if (p.kind === 'sting') p.entrySting = null;
@@ -182,7 +183,7 @@ Object.assign(UI, {
       this.renderPatterns();
     });
     $('#workspace').addEventListener('click', (e) => {
-      const b = e.target.closest('.lib-bar [data-pbact]');
+      const b = e.target.closest('.lib-bar [data-pbact], .lib-pop [data-pbact]');
       if (!b) return;
       if (b.dataset.pbact === 'dup') {
         App.pushUndo();

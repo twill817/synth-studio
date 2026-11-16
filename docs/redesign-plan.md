@@ -323,6 +323,30 @@ Roles (Drums, Bass, Keys, Pad, Lead) live in the Game Style: each is a sound. A 
 - Instrument panel's scope bar (Customize for this level, Revert, Make this the game style) → Customize for this level / Back to the library version / Make this the library version.
 - Claude tools: `manage_role`, `add_track`, `remove_track`, `set_track`, `set_sound`, `set_mix`, `set_layers` change with 6a/6b (renamed to instruments and parts; the server instructions updated with them).
 
+## Step 7: UI pass — less on screen (asked 2026-11-15)
+
+✅ Built 2026-11-15 (`js/chrome.js`: Pop, Drawer, Sim; the HTML moves the controls themselves, so their handlers are unchanged). Notes: Key and Scale are the level's, so they went to ⚙ Level settings, not ⚙ Track; the map now starts open (it's one row); the Simulate overlay sits under the map so ＋ and ▶ Simulate stay in reach; the drawer, the map and Simulate remember open/closed per browser. Checked: every moved button keeps its handler; swing, + Segment, transpose, bars, kind, ×2 and double-click-to-open-Sound work from their new places; no console errors.
+
+The user: too much on the screen; prioritize, and put what's used less often in a menu or overlay. Their choices (all the recommended ones):
+- **Bottom → a drawer, closed by default.** A thin bar names the selected instrument and its sound, with **▴ Sound** and **⌨ Keyboard**; each opens above the bar, over the editor. Double-clicking an instrument opens Sound; selecting one in Library › Instruments opens it too. Computer-key playing works with the drawer closed.
+- **Map → one slim row; Simulate → an overlay.** The map is the row of nodes. + Segment, + Sting, Place and *Changes land on* go into a **＋** menu; the help line into an ⓘ. **▶ Simulate** opens the Simulate panel as an overlay on the right.
+- **Editor → essentials only.** Header: the track's name, its library state, *Plays on*, and **⚙ Track** (Segment/Sting, Enter through, how a sting plays, Bars, Duplicate, Remove, Make a version / Back to the library version). Piano roll row: instrument chips, Snap, Length, Velocity, Zoom, **✎ Tools** (loop generator, progression, Insert loop, Clear notes, −1/+1, Quantize, Quantize recording), **♫ Melodies** (insert from the library, Save as theme; *Linked to* stays visible when it applies), ⓘ. Beat row: Drum track, **✎ Tools** (Kit, Beat loop + Load, ×2, Clear drums), ⓘ.
+- **Top bar → ☰ menu + status.** ☰: New, Open, Load demo (Save and Export keep their buttons). Connect Claude becomes a small status button. Swing (with Key and Scale, which are the level's, not a track's) moves to **⚙ Level settings** beside *Levels* in the sidebar. BPM, metronome and scope stay.
+
+### Moves (must-keep)
+| Control | Now in |
+|---|---|
+| New, Load demo, Open | ☰ menu |
+| Swing, Key, Scale | Sidebar › Levels › ⚙ Level settings |
+| + Segment, + Sting, Place, Changes land on | Map › ＋ |
+| Simulate panel (Start, Fade out, events, intensity, Edit events…) | ▶ Simulate overlay |
+| Segment/Sting, Enter through, sting play settings, Bars, Duplicate, Remove, Make a version / Back to the library | ⚙ Track |
+| Loop, Progression, Insert loop, Clear notes, −1/+1, Quantize, Quantize recording | Piano Roll › ✎ Tools |
+| Themes bar (pick, Fit to key, Octave, Speed, Insert, Add on top, ▶, Save as theme) | Piano Roll › ♫ Melodies |
+| Kit, Beat loop + Load, ×2, Clear drums | Beat › ✎ Tools |
+| Editing hints | ⓘ tooltips |
+| Sound panel, keyboard, octave, MIDI status | Bottom drawer (MIDI status on its bar) |
+
 ## Must-keep list
 
 Where every current control ends up. Tick each when its step ships.

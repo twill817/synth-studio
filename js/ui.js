@@ -121,6 +121,7 @@ const UI = {
     Roll.init();
     Curves.init();
     InstCurves.init();
+    Pop.init(); Drawer.init(); Sim.init();
     this.renderAll();
     requestAnimationFrame(() => this.frame());
     window.addEventListener('resize', () => { this.renderKeyboard(); Roll.draw(); });
@@ -134,6 +135,7 @@ const UI = {
     $('#swing').value = s.swing;
     $('#songKey').value = s.key;
     $('#songScale').value = s.scale;
+    $('#levelPopName').textContent = s.name;
     if (typeof Bridge !== 'undefined') Bridge.notify();
     this.renderScores();
     this.renderAddTrack();
@@ -344,29 +346,33 @@ const UI = {
   /* The library link of the selected pattern, shown above the Beat grid and Piano Roll. */
   renderLibBar() {
     const p = App.pattern(), s = App.song;
-    let html = '';
-    if (!p) { $$('.lib-bar').forEach((el) => { el.innerHTML = ''; el.hidden = true; }); return; }
+    if (!p) { $$('.lib-bar').forEach((el) => { el.innerHTML = ''; el.hidden = true; }); $$('.lib-pop').forEach((el) => (el.innerHTML = '')); return; }
     const stings = s.patterns.filter((q) => q.kind === 'sting');
-    const head = `<b class="pb-name">${p.kind === 'sting' ? '⚡ ' : ''}${esc(p.name)}</b>
-      <select data-pb="kind" title="A segment loops while the game stays in it; a sting plays once"><option value="loop" ${p.kind !== 'sting' ? 'selected' : ''}>Segment · loops</option><option value="sting" ${p.kind === 'sting' ? 'selected' : ''}>Sting · plays once</option></select>
-      ${p.kind !== 'sting' && stings.length ? `<label title="The game plays this sting on the way into ${esc(p.name)}, from any segment">Enter through <select data-pb="entry"><option value="">no sting</option>${stings.map((q) => `<option value="${q.id}" ${p.entrySting === q.id ? 'selected' : ''}>⚡ ${esc(q.name)}</option>`).join('')}</select></label>` : ''}
-      ${p.kind === 'sting' ? this.stingSettingsHTML(p, s) : ''}
-      <button data-pbact="dup" title="Copy this pattern as a new, separate library item">Duplicate</button>
-      ${s.patterns.length > 1 ? '<button data-pbact="remove" title="Remove from this level (it stays in the library)">Remove</button>' : ''}
-      <span class="pb-sep"></span>`;
-    if (p && p.lib && Library.of(p)) {
+    // Shown: the name, where it comes from, Plays on. The rest is in ⚙ Track.
+    let badge = '', more = '';
+    if (p.lib && Library.of(p)) {
       const it = Library.of(p), also = Library.alsoIn(p, s);
-      html = `<span class="scope style">From the library</span><b>${esc(it.name)}</b>
-        <span class="muted">${also.length ? `also plays in ${esc(also.join(', '))} — edits here change it there too` : 'only in this level so far'}</span>
-        ${it.scale !== s.scale ? `<span class="muted" title="Notes are moved to this level's key by whole semitones, not refitted to its scale">· written in ${SCALES[it.scale].name.toLowerCase()}</span>` : ''}
-        <button data-libact="own" title="Split this pattern off so edits stay in ${esc(s.name)}">Make a version for this level</button>`;
-    } else if (p && p.from && Library.find(p.from)) {
-      html = `<span class="scope level">This level’s own version</span><b>${esc(Library.find(p.from).name)}</b>
-        <span class="muted">Edits stay in ${esc(s.name)}.</span>
-        <button data-libact="relink" title="Drop this level's changes and use the library's version again">Back to the library version</button>`;
+      badge = `<span class="scope style" title="${also.length ? `Also plays in ${esc(also.join(', '))} — edits here change it there too` : 'Only in this level so far'}">From the library${also.length ? ` · also in ${also.length} level${also.length > 1 ? 's' : ''}` : ''}</span>`;
+      more = `<div class="pop-sec"><span class="scope style">From the library</span> <b>${esc(it.name)}</b>
+        <p class="muted">${also.length ? `Also plays in ${esc(also.join(', '))} — edits here change it there too.` : 'Only in this level so far.'}${it.scale !== s.scale ? ` Written in ${SCALES[it.scale].name.toLowerCase()} (notes move to this level's key by whole semitones).` : ''}</p>
+        <button data-libact="own" title="Split this pattern off so edits stay in ${esc(s.name)}">Make a version for this level</button></div>`;
+    } else if (p.from && Library.find(p.from)) {
+      badge = `<span class="scope level" title="Edits stay in ${esc(s.name)}">This level’s own version</span>`;
+      more = `<div class="pop-sec"><span class="scope level">This level’s own version</span> <b>${esc(Library.find(p.from).name)}</b>
+        <p class="muted">Edits stay in ${esc(s.name)}.</p>
+        <button data-libact="relink" title="Drop this level's changes and use the library's version again">Back to the library version</button></div>`;
     }
+    const head = `<b class="pb-name">${p.kind === 'sting' ? '⚡ ' : ''}${esc(p.name)}</b><span class="muted pb-kind">${p.kind === 'sting' ? 'sting' : 'segment'}</span>${badge}`;
     const plays = this.playsOnHTML ? this.playsOnHTML(p, s) : '';
-    $$('.lib-bar').forEach((el) => { el.innerHTML = head + html + plays; el.hidden = false; });
+    $$('.lib-bar').forEach((el) => { el.innerHTML = head + plays; el.hidden = false; });
+    const pop = `<div class="pop-title">${p.kind === 'sting' ? '⚡ ' : ''}${esc(p.name)}</div>
+      <label>Kind <select data-pb="kind" title="A segment loops while the game stays in it; a sting plays once"><option value="loop" ${p.kind !== 'sting' ? 'selected' : ''}>Segment · loops</option><option value="sting" ${p.kind === 'sting' ? 'selected' : ''}>Sting · plays once</option></select></label>
+      ${p.kind !== 'sting' && stings.length ? `<label title="The game plays this sting on the way into ${esc(p.name)}, from any segment">Enter through <select data-pb="entry"><option value="">no sting</option>${stings.map((q) => `<option value="${q.id}" ${p.entrySting === q.id ? 'selected' : ''}>⚡ ${esc(q.name)}</option>`).join('')}</select></label>` : ''}
+      ${p.kind === 'sting' ? `<div class="pop-sec">${this.stingSettingsHTML(p, s)}</div>` : ''}
+      ${more}
+      <div class="row gap"><button data-pbact="dup" title="Copy this pattern as a new, separate library item">Duplicate</button>
+      ${s.patterns.length > 1 ? '<button data-pbact="remove" class="danger" title="Remove from this level (it stays in the library)">Remove from level</button>' : ''}</div>`;
+    $$('.lib-pop').forEach((el) => (el.innerHTML = pop));
   },
   /* How a sting plays when an event (PlaySting) fires it — this level's setting. */
   stingSettingsHTML(p, s) {
@@ -986,6 +992,7 @@ const UI = {
   renderInst() {
     const tg = this.instTarget();
     const ip = $('#instPanel');
+    Drawer.who(tg);
     if (!tg || !tg.role) { ip.innerHTML = ''; return; }
     const S = tg.sound;
     const color = tg.track ? tg.track.color : tg.role.color;
@@ -1178,12 +1185,13 @@ const UI = {
       App.style.roles.splice(App.style.roles.indexOf(r) + 1, 0, c);
       App.sel.role = c.id;
       after(); App.changed();
-      toast(`Made “${c.name}” — change its sound below`);
+      toast(`Made “${c.name}” — change its sound below`); if (!Drawer.sound) Drawer.set('sound', true);
       return true;
     }
     App.sel.role = r.id;
     $$('.track-item.sel').forEach((x) => x.classList.remove('sel'));
     $$('.role-row').forEach((x) => x.classList.toggle('sel', x === row));
+    if (!Drawer.sound) Drawer.set('sound', true);   // editing an instrument: show its sound
     this.renderInst(); this.renderKeyboard();
     if (act === 'rename') this.renameRole(r.id);
     return true;
@@ -1351,7 +1359,7 @@ const UI = {
     const b = $('#btnClaude');
     b.hidden = state === 'unavailable'; // opened as a file: browsers block the link
     b.className = 'claude-btn ' + state;
-    b.textContent = { off: 'Connect Claude', waiting: 'Claude: waiting…', connected: '● Claude connected', displaced: 'Claude: other tab · Use this tab' }[state] || '';
+    b.textContent = { off: 'Claude', waiting: 'Claude…', connected: 'Claude', displaced: 'Claude: use this tab' }[state] || '';
     b.title = {
       off: 'Let Claude (Claude Code or Claude Desktop with the Synth Studio MCP server) read and edit this project. Every change appears here and can be undone.',
       displaced: 'Another Synth Studio tab or window has the Claude link, so Claude reads and edits the project there, not here. Click to move the link to this tab.',

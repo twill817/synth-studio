@@ -102,8 +102,8 @@ const Roll = {
   /* Show only the theme controls that apply right now. */
   renderThemeBar() {
     const t = this.track(), themes = Library.melodies();
-    $('#themeBar').hidden = !t;
-    if (!t) return;
+    $('#melodiesWrap').hidden = !t;   // (#themeBar is its popover)
+    if (!t) { $('#themeLinked').hidden = true; return; }
     const sel = $('#themeSel'), cur = sel.value;
     sel.innerHTML = themes.map((th) => `<option value="${th.id}">${esc(th.name)} · ${NOTE_NAMES[th.key]} ${SCALES[th.scale].name.toLowerCase()} · ${th.bars} bar${th.bars > 1 ? 's' : ''}</option>`).join('');
     if (themes.some((th) => th.id === cur)) sel.value = cur;
@@ -113,7 +113,7 @@ const Roll = {
     const o = this.origin();
     $('#themeLinked').hidden = !o;
     if (o) $('#themeLinkName').textContent = Themes.find(o.theme).name + (o.speed !== 1 || o.oct ? ` (${[o.speed === 2 ? 'half speed' : o.speed === 0.5 ? 'double speed' : '', o.oct ? (o.oct > 0 ? '+' : '') + o.oct + ' oct' : ''].filter(Boolean).join(', ')})` : '');
-    if (!themes.length && !ns.length) $('#themeBar').hidden = true; // nothing to do with themes yet
+    if (!themes.length && !ns.length) $('#melodiesWrap').hidden = true; // nothing to do with themes yet
   },
 
   /* ---------- which tracks show (step 5: the layered roll) ----------

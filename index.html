@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Synth Studio</title>
 <!-- Build number: stamped by tools/pre-commit into this tag, every ?v= below, and version.txt. -->
-<meta name="build" content="20261116043852">
+<meta name="build" content="20261116050008">
 <script>
 /* Stale-page check. Browsers may keep this page cached for a few minutes after an update.
    version.txt is always fetched fresh; if it names a newer build than this page, reload once
@@ -21,7 +21,7 @@
   }).catch(function () { /* opened as a file, or offline: nothing to check */ });
 })();
 </script>
-<link rel="stylesheet" href="styles.css?v=20261116043852">
+<link rel="stylesheet" href="styles.css?v=20261116050008">
 </head>
 <body>
 <header id="topbar">
@@ -35,26 +35,41 @@
   </div>
   <div class="tempo">
     <label>BPM <input id="bpm" type="number" min="40" max="260" step="1"></label>
-    <label title="Swing amount">Swing <input id="swing" type="range" min="0" max="75" step="1"></label>
     <button id="btnMetro" class="tbtn small" title="Metronome (M)">♩</button>
   </div>
   <canvas id="scope" width="160" height="34" title="Output"></canvas>
   <div class="filebar">
-    <button id="btnClaude" class="claude-btn">Connect Claude</button>
     <button id="btnUndo" title="Undo (Ctrl+Z)">↶</button>
     <button id="btnRedo" title="Redo (Ctrl+Y)">↷</button>
-    <button id="btnNew" title="Start a blank game project">New</button>
-    <button id="btnDemo" title="Open the example game: two levels with adaptive music, a shared theme and an “Ice” flavor">Load demo</button>
-    <button id="btnOpen" title="Open project (.json) or import a MIDI file">Open</button>
+    <button id="btnClaude" class="claude-btn">Claude</button>
     <button id="btnSave" title="Save project (Ctrl+S)">Save</button>
     <button id="btnExport" class="primary">Export</button>
+    <span class="pop-wrap">
+      <button data-pop="filePop" class="menu-btn" title="New, Open, Load demo" aria-label="Menu">☰</button>
+      <div class="pop menu" id="filePop" hidden>
+        <button id="btnNew" title="Start a blank game project">New</button>
+        <button id="btnOpen" title="Open project (.json) or import a MIDI file">Open…</button>
+        <button id="btnDemo" title="Open the example game: two levels with adaptive music, a shared theme and an “Ice” flavor">Load demo</button>
+      </div>
+    </span>
   </div>
 </header>
 
 <main>
   <aside id="sidebar">
     <section>
-      <h3>Levels</h3>
+      <h3 class="head-row">Levels
+        <span class="pop-wrap">
+          <button data-pop="levelPop" class="icon-btn" title="Level settings: key, scale, swing">⚙</button>
+          <div class="pop" id="levelPop" hidden>
+            <div class="pop-title">Level settings <span class="muted" id="levelPopName"></span></div>
+            <label>Key <select id="songKey"></select></label>
+            <label>Scale <select id="songScale"></select></label>
+            <label title="Swing amount">Swing <input id="swing" type="range" min="0" max="75" step="1"></label>
+            <p class="muted">BPM is in the top bar.</p>
+          </div>
+        </span>
+      </h3>
       <div id="scoreList"></div>
       <div class="row gap">
         <button id="btnAddScore" title="New level using the game style's roles and defaults">+ New level</button>
@@ -74,20 +89,29 @@
   <section id="workspace">
     <section id="mapArea" class="map-area" aria-label="Level map">
       <div class="map-main">
-        <div class="map-head">
-          <button id="btnMapFold" class="map-fold" aria-expanded="true" title="Fold the map away to give the editor more room">▾ Map</button>
-          <span class="muted map-help">Click a segment to edit it · ▶ plays it like the game · drag to reorder</span>
-          <span class="map-tools">
-            <button id="btnAddSeg" title="New segment (loops while the game stays in it); it also goes into the library">+ Segment</button>
-            <button id="btnAddSting" title="New sting (plays once); it also goes into the library">+ Sting</button>
-            <span id="placeRow" class="row gap"><select id="placeSel" title="A pattern from the game library to use in this level"></select><button id="btnPlace" title="Use this library pattern in this level, linked">Place</button></span>
-            <label title="When a change the game asks for actually happens">Changes land on <select id="mapQuant"><option value="beat">next beat</option><option value="bar">next bar</option><option value="end">end of segment</option></select></label>
-          </span>
-        </div>
+        <button id="btnMapFold" class="map-fold" aria-expanded="true" title="Fold the map away to give the editor more room">▾ Map</button>
         <div id="mapBody" class="map-body"></div>
+        <span class="map-side">
+          <span class="pop-wrap">
+            <button data-pop="mapAddPop" class="icon-btn" title="Add a segment or sting, place one from the library, and when changes land">＋</button>
+            <div class="pop" id="mapAddPop" hidden>
+              <div class="row gap">
+                <button id="btnAddSeg" title="New segment (loops while the game stays in it); it also goes into the library">+ Segment</button>
+                <button id="btnAddSting" title="New sting (plays once); it also goes into the library">+ Sting</button>
+              </div>
+              <span id="placeRow" class="row gap"><select id="placeSel" title="A pattern from the game library to use in this level"></select><button id="btnPlace" title="Use this library pattern in this level, linked">Place</button></span>
+              <label title="When a change the game asks for actually happens">Changes land on <select id="mapQuant"><option value="beat">next beat</option><option value="bar">next bar</option><option value="end">end of segment</option></select></label>
+            </div>
+          </span>
+          <button id="btnSim" class="sim-btn" title="Play the level like the game: start, fire events, set intensity">▶ Simulate</button>
+          <span class="hint-i" title="Click a segment to edit it · ▶ on a segment plays it like the game · drag to reorder · double-click to rename">ⓘ</span>
+        </span>
       </div>
-      <aside id="simPanel" class="sim-panel" aria-label="Simulate the game"></aside>
     </section>
+    <aside id="simOverlay" class="sim-overlay" aria-label="Simulate the game" hidden>
+      <button id="btnSimClose" class="sim-close" title="Close (the music keeps playing)" aria-label="Close Simulate">✕</button>
+      <div id="simPanel" class="sim-panel"></div>
+    </aside>
     <nav class="tabs" id="tabs">
       <button data-view="beat" class="on">Beat</button>
       <button data-view="roll">Piano Roll</button>
@@ -97,23 +121,45 @@
     </nav>
 
     <div class="view on" id="view-beat">
-      <div class="toolbar sub lib-bar" hidden></div>
+      <div class="toolbar sub ed-head">
+        <div class="lib-bar" hidden></div>
+        <span class="pop-wrap">
+          <button data-pop="trkPopBeat" class="pop-btn" title="This track: segment or sting, bars, duplicate, remove, library version">⚙ Track ▾</button>
+          <div class="pop trk-pop" id="trkPopBeat" hidden>
+            <div class="lib-pop"></div>
+            <label>Bars <select class="barsSel"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
+          </div>
+        </span>
+      </div>
       <div class="toolbar">
         <label>Drum track <select id="beatTrack"></select></label>
-        <label>Kit <select id="beatKit"></select></label>
-        <span id="beatScope" class="scope style"></span>
-        <label>Bars <select class="barsSel"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
-        <label>Beat loop <select id="beatLoop"></select></label>
-        <button id="btnBeatApply">Load</button>
-        <button id="btnBeatDouble" title="Double the pattern length, copying its contents">×2</button>
-        <button id="btnBeatClear" class="danger">Clear drums</button>
-        <span class="hint">Click = on/off · Shift/right-click = change velocity · drag to paint · keys 1–0 play pads</span>
+        <span class="pop-wrap">
+          <button data-pop="beatTools" class="pop-btn" title="Kit, beat loops, double, clear">✎ Tools ▾</button>
+          <div class="pop" id="beatTools" hidden>
+            <label>Kit <select id="beatKit"></select> <span id="beatScope" class="scope style"></span></label>
+            <span class="row gap"><label>Beat loop <select id="beatLoop"></select></label><button id="btnBeatApply">Load</button></span>
+            <span class="row gap">
+              <button id="btnBeatDouble" title="Double the pattern length, copying its contents">×2 length</button>
+              <button id="btnBeatClear" class="danger">Clear drums</button>
+            </span>
+          </div>
+        </span>
+        <span class="hint-i" title="Click = on/off · Shift/right-click = change velocity · drag to paint · keys 1–0 play pads">ⓘ</span>
       </div>
       <div id="beatGrid" class="beat-grid"></div>
     </div>
 
     <div class="view" id="view-roll">
-      <div class="toolbar sub lib-bar" hidden></div>
+      <div class="toolbar sub ed-head">
+        <div class="lib-bar" hidden></div>
+        <span class="pop-wrap">
+          <button data-pop="trkPopRoll" class="pop-btn" title="This track: segment or sting, bars, duplicate, remove, library version">⚙ Track ▾</button>
+          <div class="pop trk-pop" id="trkPopRoll" hidden>
+            <div class="lib-pop"></div>
+            <label>Bars <select class="barsSel"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
+          </div>
+        </span>
+      </div>
       <div class="toolbar">
         <span id="rollChips" class="roll-chips" role="group" aria-label="Tracks in the piano roll"></span>
         <label>Snap <select id="rollSnap">
@@ -123,24 +169,25 @@
           <option value="1">1/16</option><option value="2" selected>1/8</option><option value="4">1/4</option>
           <option value="8">1/2</option><option value="16">1 bar</option></select></label>
         <label>Velocity <input id="rollVel" type="range" min="0.05" max="1" step="0.05"></label>
-        <label>Key <select id="songKey"></select></label>
-        <label>Scale <select id="songScale"></select></label>
-        <label>Bars <select class="barsSel"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
         <label>Zoom <input id="rollZoom" type="range" min="10" max="48" value="22"></label>
-      </div>
-      <div class="toolbar sub">
-        <label>Loop <select id="loopGen"></select></label>
-        <label>Progression <select id="loopProg"></select></label>
-        <button id="btnLoopInsert" title="Replace this track's notes in the pattern with the generated loop">Insert loop</button>
-        <button id="btnRollClear" class="danger">Clear notes</button>
-        <button id="btnTransDown" title="Transpose selected (or all) notes down a semitone">−1</button>
-        <button id="btnTransUp" title="Transpose up a semitone">+1</button>
-        <button id="btnQuant" title="Quantize all notes to the snap grid">Quantize</button>
-        <label><input type="checkbox" id="recQuant" checked> Quantize recording</label>
-        <span class="hint">Click empty = add · drag = move · drag right edge = resize · right-click = delete · Shift-drag = box select · Del = delete selected</span>
-      </div>
-      <div class="toolbar sub" id="themeBar">
-        <span class="tb-label" title="The game's recurring melodies and progressions — Game Style tab lists them all">Themes</span>
+        <span class="pop-wrap">
+          <button data-pop="rollTools" class="pop-btn" title="Loop generator, transpose, quantize, clear">✎ Tools ▾</button>
+          <div class="pop" id="rollTools" hidden>
+            <span class="row gap"><label>Loop <select id="loopGen"></select></label>
+            <label>Progression <select id="loopProg"></select></label>
+            <button id="btnLoopInsert" title="Replace this track's notes in the pattern with the generated loop">Insert loop</button></span>
+            <span class="row gap">
+              <button id="btnTransDown" title="Transpose selected (or all) notes down a semitone">−1</button>
+              <button id="btnTransUp" title="Transpose up a semitone">+1</button>
+              <button id="btnQuant" title="Quantize all notes to the snap grid">Quantize</button>
+              <label><input type="checkbox" id="recQuant" checked> Quantize recording</label>
+            </span>
+            <span class="row gap"><button id="btnRollClear" class="danger">Clear notes</button></span>
+          </div>
+        </span>
+        <span class="pop-wrap" id="melodiesWrap">
+          <button data-pop="themeBar" class="pop-btn" title="The game's melodies and progressions: insert one, or save these notes as one">♫ Melodies ▾</button>
+          <div class="pop" id="themeBar" hidden>
         <span id="themeInsert" class="row gap wrap">
           <select id="themeSel" aria-label="Theme"></select>
           <label title="Move the theme into this level's key and scale">
@@ -152,6 +199,9 @@
           <button id="btnThemePlay" title="Hear the theme">▶</button>
         </span>
         <button id="btnThemeSave" title="Save these notes (or the selected ones) as a game theme">Save as theme</button>
+          </div>
+        </span>
+        <span class="hint-i" title="Click empty = add · drag = move · drag right edge = resize · right-click = delete · Shift-drag = box select · Del = delete selected">ⓘ</span>
         <span id="themeLinked" class="theme-link">
           <span class="muted">Linked to</span> <b id="themeLinkName"></b>
           <button id="btnThemeReapply" title="Rewrite these notes from the theme's current version">Re-apply theme</button>
@@ -186,17 +236,24 @@
 </main>
 
 <footer id="bottom">
-  <div id="instPanel" class="inst-panel"></div>
-  <div class="kbd-area">
-    <div class="kbd-bar">
-      <button id="octDown" title="Octave down (Z)">◀</button>
-      <span id="octLabel">C4</span>
-      <button id="octUp" title="Octave up (X)">▶</button>
-      <span class="muted" id="kbdTarget"></span>
-      <span class="muted" id="midiStatus"></span>
-      <span class="hint">Play with A W S E D F T G Y H U J K O L P · Z/X octave</span>
+  <div class="drawer" id="drawer">
+    <div id="instPanel" class="inst-panel"></div>
+    <div class="kbd-area">
+      <div class="kbd-bar">
+        <button id="octDown" title="Octave down (Z)">◀</button>
+        <span id="octLabel">C4</span>
+        <button id="octUp" title="Octave up (X)">▶</button>
+        <span class="muted" id="kbdTarget"></span>
+        <span class="hint">Play with A W S E D F T G Y H U J K O L P · Z/X octave</span>
+      </div>
+      <div id="keyboard" class="keyboard"></div>
     </div>
-    <div id="keyboard" class="keyboard"></div>
+  </div>
+  <div class="drawer-bar">
+    <span id="drawerWho" class="drawer-who"></span>
+    <button id="btnSound" class="drawer-btn" title="The selected instrument's sound and curves (double-click an instrument to open)">▴ Sound</button>
+    <button id="btnKbd" class="drawer-btn" title="On-screen keyboard (the computer keys A W S E D … play even when it's closed)">⌨ Keyboard</button>
+    <span class="muted" id="midiStatus"></span>
   </div>
 </footer>
 
@@ -267,21 +324,22 @@
 <input type="file" id="fileOpen" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
 <input type="file" id="fileSample" accept="audio/*" hidden>
 
-<script src="js/presets.js?v=20261116043852"></script>
-<script src="js/audio.js?v=20261116043852"></script>
-<script src="js/export.js?v=20261116043852"></script>
-<script src="js/unity.js?v=20261116043852"></script>
-<script src="js/app.js?v=20261116043852"></script>
-<script src="js/library.js?v=20261116043852"></script>
-<script src="js/themes.js?v=20261116043852"></script>
-<script src="js/ui.js?v=20261116043852"></script>
-<script src="js/events.js?v=20261116043852"></script>
-<script src="js/map.js?v=20261116043852"></script>
-<script src="js/roll.js?v=20261116043852"></script>
-<script src="js/curves.js?v=20261116043852"></script>
-<script src="js/bridge.js?v=20261116043852"></script>
-<script src="js/bridge-edit.js?v=20261116043852"></script>
-<script src="js/bridge-production.js?v=20261116043852"></script>
+<script src="js/presets.js?v=20261116050008"></script>
+<script src="js/audio.js?v=20261116050008"></script>
+<script src="js/export.js?v=20261116050008"></script>
+<script src="js/unity.js?v=20261116050008"></script>
+<script src="js/app.js?v=20261116050008"></script>
+<script src="js/library.js?v=20261116050008"></script>
+<script src="js/themes.js?v=20261116050008"></script>
+<script src="js/ui.js?v=20261116050008"></script>
+<script src="js/events.js?v=20261116050008"></script>
+<script src="js/map.js?v=20261116050008"></script>
+<script src="js/roll.js?v=20261116050008"></script>
+<script src="js/curves.js?v=20261116050008"></script>
+<script src="js/chrome.js?v=20261116050008"></script>
+<script src="js/bridge.js?v=20261116050008"></script>
+<script src="js/bridge-edit.js?v=20261116050008"></script>
+<script src="js/bridge-production.js?v=20261116050008"></script>
 <script>
 /* Safety net: if the app can't start (e.g. a half-updated page), say so and offer a clean reload
    instead of leaving a broken screen. */
