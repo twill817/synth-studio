@@ -126,17 +126,31 @@ const Edit = {
   },
   /* Writing into an instrument a pattern doesn't have yet adds it to the pattern. */
   joinPattern(s, p, t) { if (p && p.parts && !partOf(p, t)) { p.parts.push(newPart(s, t, p)); ensurePattern(p, s); } return t; },
+  /* A level's lane by name, or a library instrument by name (its lane in the level, made if needed). */
+  lane(s, ref) {
+    try { return Ref.track(s, ref); } catch (e) {
+      let r = null;
+      try { r = Ref.pick(App.style.roles, ref, 'instrument'); } catch (e2) { throw e; }
+      if (!r) throw e;
+      return laneForRole(s, r);
+    }
+  },
   synthTrack(s, ref, p) {
-    const t = Ref.track(s, ref);
-    if (!t) throw new Error('Which instrument? Give its name.');
+    if (!ref) throw new Error('Which instrument? Give its name.');
+    const t = this.lane(s, ref);
     if (t.type !== 'synth') throw new Error(`“${t.name}” is a drum instrument — use write_drums.`);
     return this.joinPattern(s, p, t);
   },
   drumTrack(s, ref, p) {
-    const t = ref ? Ref.track(s, ref) : partLanes(s, p).find((x) => x.type === 'drum') || s.tracks.find((x) => x.type === 'drum');
-    if (!t) throw new Error(`“${s.name}” has no drum instrument. Add one with add_track (a drum role).`);
+    const t = ref ? this.lane(s, ref) : partLanes(s, p).find((x) => x.type === 'drum');
+    if (!t) throw new Error(`“${p.name}” has no drum instrument. Give track (a drum instrument's name), or add one with add_track.`);
     if (t.type !== 'drum') throw new Error(`“${t.name}” isn't a drum instrument.`);
     return this.joinPattern(s, p, t);
+  },
+  /* Instruments own their notes: say where else this one plays (those change too). */
+  shared(t, p) {
+    const also = usesText(roleOf(t), p);
+    return also ? ` The instrument “${roleOf(t).name}” owns these ${t.type === 'drum' ? 'beats' : 'notes'}, so they also changed in: ${also}. (For a different part there, duplicate the instrument with manage_role and use the copy.)` : '';
   },
   /* Which tracks, in which scores, a role change reaches — and which keep their own sound. */
   roleImpact(role) {
@@ -166,36 +180,37 @@ Object.assign(BridgeAPI, {
       const len = p.bars * 16;
       const kept = parsed.filter((n) => n.s < len).map((n) => ({ ...n, l: Math.min(n.l, len - n.s) }));
       const dropped = parsed.length - kept.length;
-      ensurePattern(p, s);
-      if (mode === 'add') p.notes[t.id].push(...kept);
-      else { p.notes[t.id] = kept; delete p.origins[t.id]; }
+      writeLaneNotes(s, t, kept, p.bars, mode === 'add' ? 'add' : 'replace');
       Edit._show = { pattern: p, track: t };
-      return `${mode === 'add' ? 'Added' : 'Wrote'} ${kept.length} note(s) to ${s.name} › ${p.name} › ${t.name}` +
+      return `${mode === 'add' ? 'Added' : 'Wrote'} ${kept.length} note(s) to ${t.name} (in ${s.name} › ${p.name})` +
         (dropped ? `; ${dropped} note(s) past the pattern's ${p.bars} bar(s) were left out` : '') +
-        (mode !== 'add' ? '. (Any link to a theme on this track was removed.)' : '.');
+        (mode !== 'add' ? `. The instrument's part is now ${p.bars} bar${p.bars > 1 ? 's' : ''} long (any link to a theme was removed).` : '.') + Edit.shared(t, p);
     }, Edit.consumeShow('roll'));
   },
 
   writeDrums({ score, pattern, track, drums, preset, mode = 'replace' }) {
     return Edit.run(score, (s) => {
       const p = Ref.pattern(s, pattern), t = Edit.drumTrack(s, track, p);
-      const steps = p.bars * 16;
-      ensurePattern(p, s);
+      const steps = p.bars * 16, r = roleOf(t), m = musicOf(r);
       const lines = [];
+      if (!drums && !preset) throw new Error('Give drum lines (e.g. {"Kick": "X...x..."}) or a preset beat name.');
+      // replacing makes the beat as long as this pattern; adding keeps the instrument's length
+      if (mode === 'replace' || preset) { m.bars = p.bars; musicOf(r); }
       if (preset) {
         const name = Object.keys(BEAT_LOOPS).find((k) => k.toLowerCase() === String(preset).toLowerCase());
         if (!name) throw new Error(`No preset beat “${preset}”. Presets: ${Object.keys(BEAT_LOOPS).join(', ')}.`);
-        applyBeat(p, t.id, name);
+        applyBeat(r, name);
         lines.push(`preset “${name}”`);
       }
       if (drums && Object.keys(drums).length) {
+        const L = m.bars * 16;
         const parsed = Object.entries(drums).map(([v, line]) => [MusicParse.drumVoice(v), MusicParse.drumLine(line, steps)]);
-        if (mode === 'replace' && !preset) DRUM_VOICES.forEach((v) => (p.drums[t.id][v.id] = new Array(steps).fill(0)));
-        parsed.forEach(([v, row]) => { p.drums[t.id][v] = row; lines.push(DRUM_VOICES.find((d) => d.id === v).name); });
+        if (mode === 'replace' && !preset) DRUM_VOICES.forEach((v) => (m.drums[v.id] = new Array(L).fill(0)));
+        parsed.forEach(([v, row]) => { for (let i = 0; i < Math.min(L, row.length); i++) m.drums[v][i] = row[i]; lines.push(DRUM_VOICES.find((d) => d.id === v).name); });
       }
       if (!lines.length) throw new Error('Give drum lines (e.g. {"Kick": "X...x..."}) or a preset beat name.');
       Edit._show = { pattern: p, track: t };
-      return `Set ${lines.join(', ')} in ${s.name} › ${p.name} › ${t.name} (${p.bars} bar${p.bars > 1 ? 's' : ''}).`;
+      return `Set ${lines.join(', ')} for ${t.name} (in ${s.name} › ${p.name}; its beat is ${m.bars} bar${m.bars > 1 ? 's' : ''}, repeating).` + Edit.shared(t, p);
     }, Edit.consumeShow('beat'));
   },
 
@@ -206,19 +221,17 @@ Object.assign(BridgeAPI, {
       if (!g) throw new Error(`No generator “${generator}”. Generators: ${Object.keys(LOOP_GENERATORS).join(', ')}.`);
       const prog = progression ? Object.keys(PROGRESSIONS).find((k) => k.toLowerCase().replace(/\s/g, '') === String(progression).toLowerCase().replace(/\s/g, '')) : 'Prog 1–5–6–4';
       if (!prog) throw new Error(`No progression “${progression}”. Progressions: ${Object.keys(PROGRESSIONS).join(', ')}.`);
-      ensurePattern(p, s);
-      p.notes[t.id] = LOOP_GENERATORS[g]({ root: s.key, scale: s.scale, bars: p.bars, prog });
-      delete p.origins[t.id];
+      const m = writeLaneNotes(s, t, LOOP_GENERATORS[g]({ root: s.key, scale: s.scale, bars: p.bars, prog }), p.bars);
       Edit._show = { pattern: p, track: t };
-      return `Generated “${g}” (${prog}) in ${MusicText.key(s)}: ${p.notes[t.id].length} notes in ${s.name} › ${p.name} › ${t.name}.`;
+      return `Generated “${g}” (${prog}) in ${MusicText.key(s)}: ${m.notes.length} notes for ${t.name} (in ${s.name} › ${p.name}).` + Edit.shared(t, p);
     }, Edit.consumeShow('roll'));
   },
 
   transformNotes({ score, pattern, track, transpose = 0, octave = 0, quantize, velocity }) {
     return Edit.run(score, (s) => {
       const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track, p);
-      const ns = p.notes[t.id] || [];
-      if (!ns.length) throw new Error(`${p.name} › ${t.name} has no notes.`);
+      const ns = laneMusic(t).notes;
+      if (!ns.length) throw new Error(`${t.name} has no notes.`);
       const q = quantize ? MusicParse.dur(quantize) : 0;
       ns.forEach((n) => {
         n.p = clamp(n.p + transpose + 12 * octave, 12, 120);
@@ -228,7 +241,7 @@ Object.assign(BridgeAPI, {
       Edit._show = { pattern: p, track: t };
       const did = [transpose && `transposed ${transpose > 0 ? '+' : ''}${transpose} st`, octave && `${octave > 0 ? '+' : ''}${octave} oct`, q && `quantized to ${quantize}`, velocity && `velocity ×${velocity}`].filter(Boolean);
       if (!did.length) throw new Error('Nothing to do: give transpose, octave, quantize and/or velocity.');
-      return `${did.join(', ')} — ${ns.length} notes in ${s.name} › ${p.name} › ${t.name}.`;
+      return `${did.join(', ')} — ${ns.length} notes of ${t.name}.` + Edit.shared(t, p);
     }, Edit.consumeShow('roll'));
   },
 
@@ -238,23 +251,23 @@ Object.assign(BridgeAPI, {
       const th = Ref.pick(Library.melodies(), theme, 'theme (library melody)');
       if (!th) throw new Error('Which theme?');
       if (![0.5, 1, 2].includes(speed)) throw new Error('speed must be 0.5 (double speed), 1, or 2 (half speed).');
-      ensurePattern(p, s);
-      const n = Themes.insert(th, t, p, { oct: clamp(Math.round(octave), -2, 2), speed, fit }, mode);
+      const n = Themes.insert(th, t, p, { oct: clamp(Math.round(octave), -2, 2), speed, fit }, mode, s);
       Edit._show = { pattern: p, track: t };
-      return `${mode === 'add' ? 'Added' : 'Inserted'} theme “${th.name}” (${n} notes)${fit ? ` fitted to ${MusicText.key(s)}` : ''} in ${s.name} › ${p.name} › ${t.name}` +
-        (mode === 'add' ? '.' : ' — linked, so reapply_theme can refresh it later.');
+      return `${mode === 'add' ? 'Added' : 'Inserted'} theme “${th.name}” (${n} notes)${fit ? ` fitted to ${MusicText.key(s)}` : ''} into ${t.name} (in ${s.name} › ${p.name})` +
+        (mode === 'add' ? '.' : ' — linked, so reapply_theme can refresh it later.') + Edit.shared(t, p);
     }, Edit.consumeShow('roll'));
   },
 
   saveTheme({ score, pattern, track, name }) {
     return Edit.run(score, (s) => {
       const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track, p);
-      const ns = p.notes[t.id] || [];
-      if (!ns.length) throw new Error(`${p.name} › ${t.name} has no notes to save.`);
+      const ns = playNotes(s, t, musicSteps(roleOf(t)));
+      if (!ns.length) throw new Error(`${t.name} has no notes to save.`);
       if (Library.items().some((x) => x.name.toLowerCase() === String(name).toLowerCase())) throw new Error(`The library already has an item called “${name}”.`);
       const th = Themes.capture(name, ns, t);
-      p.origins[t.id] = { theme: th.id, oct: 0, speed: 1, fit: true };
-      return `Saved theme “${th.name}” in ${MusicText.key(s)} (${th.bars} bar${th.bars > 1 ? 's' : ''}, ${th.notes.length} notes). This track is now linked to it.`;
+      laneMusic(t).theme = { theme: th.id, oct: 0, speed: 1, fit: true };
+      void p;
+      return `Saved theme “${th.name}” in ${MusicText.key(s)} (${th.bars} bar${th.bars > 1 ? 's' : ''}, ${th.notes.length} notes). The instrument ${t.name} is now linked to it.`;
     });
   },
 
@@ -265,18 +278,18 @@ Object.assign(BridgeAPI, {
     const only = score ? Ref.score(score) : null;
     return Edit.run(only ? only.name : undefined, () => {
       const done = [];
-      App.project.scores.forEach((s) => {
-        if (only && s !== only) return;
-        s.patterns.forEach((p) => Object.entries(p.origins || {}).forEach(([tid, o]) => {
-          if (o.theme !== th.id) return;
-          const t = s.tracks.find((x) => x.id === tid);
-          if (!t) return;
-          p.notes[tid] = Themes.render(th, { key: s.key, scale: s.scale, bars: p.bars, oct: o.oct, speed: o.speed, fit: o.fit });
-          done.push(`${s.name} › ${p.name} › ${t.name}`);
-        }));
+      App.style.roles.forEach((r) => {
+        const o = r.music && r.music.theme;
+        if (!o || o.theme !== th.id) return;
+        // re-render in a level that plays it (its key and scale), at the instrument's length
+        const use = musicUses(r).find((u) => !only || u.song === only) || (only ? null : musicUses(r)[0]);
+        if (only && !use) return;
+        const s = use ? use.song : App.song, t = laneForRole(s, r);
+        Themes.insert(th, t, { bars: r.music.bars }, { oct: o.oct, speed: o.speed, fit: o.fit }, 'replace', s);
+        done.push(`${r.name}${use ? ` (plays in ${usesText(r) || use.pattern.name})` : ''}`);
       });
-      if (!done.length) throw new Error(`Theme “${th.name}” isn't linked anywhere${only ? ` in ${only.name}` : ''}.`);
-      return { reappliedTheme: th.name, places: done };
+      if (!done.length) throw new Error(`Theme “${th.name}” isn't linked to any instrument${only ? ` played in ${only.name}` : ''}.`);
+      return { reappliedTheme: th.name, instruments: done };
     });
   },
 
@@ -287,7 +300,7 @@ Object.assign(BridgeAPI, {
     App.pushUndo();
     try {
       const s = src ? duplicateScore(src, name) : makeScore(name);
-      if (!src) { App.style.roles.forEach((r) => s.tracks.push(makeTrack(r))); s.patterns.push(makePattern('Main', 2)); s.arrangement = [0]; }
+      if (!src) { s.patterns.push(makePattern('Main', 2)); s.arrangement = [0]; }
       if (key !== undefined) s.key = Edit.key(key);
       if (scale) { if (!SCALES[scale]) throw new Error(`Unknown scale “${scale}”. Scales: ${Object.keys(SCALES).join(', ')}.`); s.scale = scale; }
       if (bpm) s.bpm = clamp(Math.round(bpm), 40, 260);
@@ -296,7 +309,7 @@ Object.assign(BridgeAPI, {
       if (flavor) { const f = Ref.pick(App.project.flavors, flavor, 'flavor'); Flavors.apply(f, s); }
       App.switchScore(App.project.scores.length - 1);
       App.changed();
-      return `Created score “${s.name}” (${MusicText.key(s)}, ${s.bpm} BPM${src ? `, copied from ${src.name}` : `, ${s.tracks.length} tracks from the game style`}${flavor ? `, flavor ${flavor}` : ''}). It's open in the app.`;
+      return `Created score “${s.name}” (${MusicText.key(s)}, ${s.bpm} BPM${src ? `, copied from ${src.name} (same instruments and patterns)` : ', with an empty segment “Main” — add instruments with add_track or place library patterns'}${flavor ? `, flavor ${flavor}` : ''}). It's open in the app.`;
     } catch (e) { App.replaceProject(JSON.parse(App.undoStack.pop()), true); throw e; }
   },
 
@@ -306,9 +319,8 @@ Object.assign(BridgeAPI, {
       if (name) { if (App.project.scores.some((x) => x !== s && x.name.toLowerCase() === name.toLowerCase())) throw new Error(`“${name}” is taken.`); s.name = name; did.push(`renamed to ${name}`); }
       if (key !== undefined) {
         const k = Edit.key(key);
-        const d = Edit.shortest(k - s.key);
-        if (transposeNotes && d) s.patterns.forEach((p) => s.tracks.forEach((t) => { if (t.type === 'synth') (p.notes[t.id] || []).forEach((n) => (n.p = clamp(n.p + d, 12, 120))); }));
-        s.key = k; did.push(`key ${NOTE_NAMES[k]}${transposeNotes && d ? ` (notes moved ${d > 0 ? '+' : ''}${d} st)` : ''}`);
+        void transposeNotes;   // instruments' notes always follow the level's key now
+        s.key = k; did.push(`key ${NOTE_NAMES[k]} (the instruments' notes move with it in this level)`);
       }
       if (scale) { if (!SCALES[scale]) throw new Error(`Unknown scale “${scale}”. Scales: ${Object.keys(SCALES).join(', ')}.`); s.scale = scale; did.push(`scale ${SCALES[scale].name}`); }
       if (bpm) { s.bpm = clamp(Math.round(bpm), 40, 260); did.push(`${s.bpm} BPM`); }
@@ -474,10 +486,7 @@ Object.assign(BridgeAPI, {
         p.entrySting = st.id;
       }
       Edit._show = { pattern: p };
-      const d = Library.offset(s, it);
-      return `Placed “${it.name}” in ${s.name} as “${p.name}” (${it.kind}, ${it.bars} bar${it.bars > 1 ? 's' : ''}, linked)` +
-        (d ? `, shifted ${d > 0 ? '+' : ''}${d} semitones from ${NOTE_NAMES[it.key]} ${SCALES[it.scale].name} to ${MusicText.key(s)}` : '') +
-        (it.scale !== s.scale ? `. Note: it was written in ${SCALES[it.scale].name}; this level is ${SCALES[s.scale].name}, so notes are shifted, not refitted` : '') + '.';
+      return `Placed “${it.name}” in ${s.name} as “${p.name}” (${it.kind}, ${it.bars} bar${it.bars > 1 ? 's' : ''}, linked). Its instruments (${partLanes(s, p).map((t) => t.name).join(', ') || 'none'}) play their own notes, moved into ${MusicText.key(s)}.`;
     }, Edit.consumeShow());
   },
 
@@ -509,7 +518,7 @@ Object.assign(BridgeAPI, {
       if (action === 'delete') {
         const u = it.kind === 'melody' ? [] : Library.uses(it).filter((x) => x.linked).map((x) => `${x.song.name} › ${x.pattern.name}`);
         Library.remove(it);
-        return `Deleted “${it.name}” from the library.` + (u.length ? ` These keep their notes as their own version: ${u.join(', ')}.` : '');
+        return `Deleted “${it.name}” from the library.` + (u.length ? ` These keep their instruments as their own version: ${u.join(', ')}.` : '');
       }
       throw new Error('action must be rename, duplicate, delete, own_version or relink.');
     });
@@ -555,11 +564,13 @@ Object.assign(BridgeAPI, {
       const r = Ref.pick(App.style.roles, role, 'instrument');
       if (!r) throw new Error('Which instrument (role)?');
       const p = Ref.patternOrOpen(s, pattern);
-      const t = addInstrumentToPattern(s, p, r, name);
+      if (name) throw new Error('A pattern plays each instrument once. For a second part, duplicate the instrument (manage_role action duplicate, with name) and add the copy.');
+      const t = addInstrumentToPattern(s, p, r);
+      if (!t) throw new Error(`“${r.name}” already plays in “${p.name}”. For a different part, duplicate it (manage_role action duplicate) and add the copy.`);
       if (layer) partOf(p, t).layer = Ref.pick(s.layers, layer, 'layer').id;
-      const src = copyPartsFromOriginal(s, p, t);
       Edit._show = { track: t, pattern: p };
-      return `Added “${t.name}” (instrument ${r.name}, ${soundName(r)}) to “${p.name}” in ${s.name}.` + (src ? ` It plays the same ${t.type === 'drum' ? 'beats' : 'notes'}${hasCurves(partOf(p, t).curves) ? ' and curves' : ''} as “${src.lane.name}” in “${(src.pattern || p).name}” (copied, since ${r.name} was duplicated from its instrument).` : '');
+      const also = usesText(r, p);
+      return `Added “${t.name}” (instrument ${r.name}, ${soundName(r)}) to “${p.name}” in ${s.name}. It plays its own ${t.type === 'drum' ? 'beat' : 'notes'} (${musicSummary(r)})` + (also ? `, the same as in ${also}` : '') + '.';
     }, Edit.consumeShow());
   },
 
@@ -631,10 +642,7 @@ Object.assign(BridgeAPI, {
         Object.keys(r.curves).forEach((k) => { if (!r.curves[k].length) delete r.curves[k]; });
         if (!Object.keys(r.curves).length) delete r.curves;
         App.sel.role = r.id;
-        const own = [];
-        App.project.scores.forEach((x) => x.patterns.forEach((p) => (p.parts || []).forEach((y) => { const t = x.tracks.find((l) => l.id === y.t); if (t && t.role === r.id && y.curves && y.curves[key]) own.push(`${x.name} › ${p.name}`); })));
-        return (clear ? `Cleared ${r.name}'s repeating ${P.name.toLowerCase()} curve.` : `${r.name}: ${P.name.toLowerCase()} ${fmtPts(r.curves[key], len)}, repeating every ${len / 16} bar${len > 16 ? 's' : ''} in every track that plays it.`) +
-          (own.length ? ` Tracks with their own ${P.name.toLowerCase()} curve for it keep theirs: ${own.join(', ')} (reset: true in a pattern goes back to the instrument's).` : '');
+        return clear ? `Cleared ${r.name}'s ${P.name.toLowerCase()} curve.` : `${r.name}: ${P.name.toLowerCase()} ${fmtPts(r.curves[key], len)}, repeating every ${len / 16} bar${len > 16 ? 's' : ''} wherever it plays.`;
       }
       const p = Ref.patternOrOpen(s, pattern);
       const whole = key === 'speed' || !target || /^(track|whole( track| sting)?|pattern|all)$/i.test(String(target).trim());
@@ -644,30 +652,25 @@ Object.assign(BridgeAPI, {
         if (key === 'speed' && p.kind !== 'sting') throw new Error('Speed curves are for stings: a loop keeps the level\'s tempo so the game can switch on the beat.');
         owner = p; label = `the whole of “${p.name}”`;
       } else {
+        // an instrument's curves are its own (like its notes): they play wherever it plays
         const t = Ref.track(s, target);
-        owner = partOf(p, t);
-        if (!owner) throw new Error(`“${t.name}” isn't in “${p.name}”. Add it with add_track first.`);
-        label = `${t.name} in “${p.name}”`;
+        if (!partOf(p, t)) throw new Error(`“${t.name}” isn't in “${p.name}”. Add it with add_track first.`);
+        owner = roleOf(t); label = `the instrument ${owner.name}`;
+        if (reset || off) throw new Error('An instrument has one set of curves (they play wherever it plays). Use clear: true to remove one; for a different curve somewhere, duplicate the instrument.');
       }
-      const inst = whole ? null : roleCurve(roleOf(Ref.track(s, target)), key);
       if (clear || reset) {
-        if (owner.curves) { delete owner.curves[key]; if (!Object.keys(owner.curves).length) delete owner.curves; }
+        if (owner.curves) { delete owner.curves[key]; if (!Object.keys(owner.curves).length) { delete owner.curves; if (!whole) delete owner.curveBars; } }
         Edit._show = { pattern: p };
-        return `Cleared the ${P.name.toLowerCase()} curve on ${label}.` + (inst ? ` It plays the instrument's repeating curve again (every ${inst.len / 16} bar${inst.len > 16 ? 's' : ''}); off: true turns it off here.` : '');
+        return `Cleared the ${P.name.toLowerCase()} curve on ${label}.`;
       }
-      if (off) {
-        if (!inst) throw new Error(`The instrument has no repeating ${P.name.toLowerCase()} curve to turn off; clear: true removes this track's own.`);
-        owner.curves = owner.curves || {};
-        owner.curves[key] = [];
-        Edit._show = { pattern: p };
-        return `No ${P.name.toLowerCase()} curve on ${label} (the instrument's repeating one is off here).`;
-      }
-      const end = p.bars * 16;
-      const pts = readPts(end, false, `“${p.name}” (${p.bars} bar${p.bars > 1 ? 's' : ''})`);
+      if (!whole && !owner.curves) owner.curveBars = p.bars;   // a first curve spans this pattern
+      const end = whole ? p.bars * 16 : (owner.curveBars || 1) * 16;
+      const pts = readPts(end, false, whole ? `“${p.name}” (${p.bars} bar${p.bars > 1 ? 's' : ''})` : `the instrument's ${end / 16}-bar curve`);
       owner.curves = owner.curves || {};
       owner.curves[key] = pts;
       Edit._show = { pattern: p };
-      return `${P.name} curve on ${label}: ${fmtPts(pts, end)} (${straight ? 'straight' : 'smooth'}). It plays in the preview and is built into the exported audio.` + (p.kind !== 'sting' ? ' A loop repeats its curves each time round.' : '') + (inst ? ' It replaces the instrument\'s repeating curve in this track (reset: true goes back).' : '');
+      const also = whole ? '' : usesText(owner, p);
+      return `${P.name} curve on ${label}: ${fmtPts(pts, end)} (${straight ? 'straight' : 'smooth'})${whole ? '' : `, repeating every ${end / 16} bar${end > 16 ? 's' : ''}`}. It plays in the preview and is built into the exported audio.` + (also ? ` It also plays in ${also}.` : '');
     }, Edit.consumeShow('roll'));
   },
 
@@ -677,7 +680,7 @@ Object.assign(BridgeAPI, {
       if (!partOf(p, t)) throw new Error(`“${t.name}” isn't in “${p.name}”.`);
       if (p.parts.length <= 1) throw new Error('A track needs at least one instrument.');
       const gone = removeInstrumentFromPattern(s, p, t);
-      return `Removed “${t.name}” and its notes from “${p.name}” in ${s.name}.` + (gone.length ? ` No other track in the level used it, so it left the level too.` : '');
+      return `Took “${t.name}” out of “${p.name}” in ${s.name} (its ${t.type === 'drum' ? 'beat' : 'notes'} stay with the instrument).` + (gone.length ? ` No other track in the level used it, so it left the level too.` : '');
     });
   },
 
@@ -752,7 +755,7 @@ Object.assign(BridgeAPI, {
         c.color = ROLE_COLORS[App.style.roles.length % ROLE_COLORS.length];
         App.style.roles.splice(App.style.roles.indexOf(r) + 1, 0, c);
         App.sel.role = c.id;
-        return `Made the instrument “${c.name}”, a copy of “${r.name}” (same sound and mix).${mixNote(c)} Change its sound with set_sound (scope game_style, role “${c.name}”).`;
+        return `Made the instrument “${c.name}”, a copy of “${r.name}” (same ${r.type === 'drum' ? 'beat' : 'notes'}, curves, sound and mix: ${musicSummary(c)}).${mixNote(c)} Add it to a pattern with add_track, then write its own part there without touching “${r.name}”.`;
       }
       if (action === 'mix') {
         if (!mix) throw new Error(`Give mix: ${Object.keys(TRACK_PARAMS).join(', ')}.`);
@@ -763,6 +766,7 @@ Object.assign(BridgeAPI, {
         const u = App.roleUsage(r.id);
         if (u.tracks) throw new Error(`“${r.name}” is used by ${u.tracks} track(s) in ${u.scores} level(s); remove those tracks first.`);
         App.style.roles = App.style.roles.filter((x) => x !== r);
+        Library.forgetRole(r.id);
         if (App.sel.role === r.id) App.sel.role = null;
         return `Removed the unused instrument “${r.name}”.`;
       }

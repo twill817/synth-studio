@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Synth Studio</title>
 <!-- Build number: stamped by tools/pre-commit into this tag, every ?v= below, and version.txt. -->
-<meta name="build" content="20261116070038">
+<meta name="build" content="20261116213148">
 <script>
 /* Stale-page check. Browsers may keep this page cached for a few minutes after an update.
    version.txt is always fetched fresh; if it names a newer build than this page, reload once
@@ -21,7 +21,7 @@
   }).catch(function () { /* opened as a file, or offline: nothing to check */ });
 })();
 </script>
-<link rel="stylesheet" href="styles.css?v=20261116070038">
+<link rel="stylesheet" href="styles.css?v=20261116213148">
 </head>
 <body>
 <header id="topbar">
@@ -133,13 +133,14 @@
       </div>
       <div class="toolbar">
         <label>Drum track <select id="beatTrack"></select></label>
+        <label class="part-len">Beat repeats every <select class="partLen" data-for="beat"></select></label>
         <span class="pop-wrap">
           <button data-pop="beatTools" class="pop-btn" title="Kit, beat loops, double, clear">✎ Tools ▾</button>
           <div class="pop" id="beatTools" hidden>
             <label>Kit <select id="beatKit"></select> <span id="beatScope" class="scope style"></span></label>
             <span class="row gap"><label>Beat loop <select id="beatLoop"></select></label><button id="btnBeatApply">Load</button></span>
             <span class="row gap">
-              <button id="btnBeatDouble" title="Double the pattern length, copying its contents">×2 length</button>
+              <button id="btnBeatDouble" title="Double the track's length; its instruments' parts double too, so you can vary the second half">×2 length</button>
               <button id="btnBeatClear" class="danger">Clear drums</button>
             </span>
           </div>
@@ -162,6 +163,7 @@
       </div>
       <div class="toolbar">
         <span id="rollChips" class="roll-chips" role="group" aria-label="Tracks in the piano roll"></span>
+        <label class="part-len">Notes repeat every <select class="partLen" data-for="roll"></select></label>
         <label>Snap <select id="rollSnap">
           <option value="0.5">1/32</option><option value="1" selected>1/16</option><option value="2">1/8</option>
           <option value="4">1/4</option><option value="8">1/2</option><option value="16">1 bar</option></select></label>
@@ -324,23 +326,23 @@
 <input type="file" id="fileOpen" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
 <input type="file" id="fileSample" accept="audio/*" hidden>
 
-<script src="js/presets.js?v=20261116070038"></script>
-<script src="js/audio.js?v=20261116070038"></script>
-<script src="js/export.js?v=20261116070038"></script>
-<script src="js/unity.js?v=20261116070038"></script>
-<script src="js/app.js?v=20261116070038"></script>
-<script src="js/library.js?v=20261116070038"></script>
-<script src="js/themes.js?v=20261116070038"></script>
-<script src="js/ui.js?v=20261116070038"></script>
-<script src="js/events.js?v=20261116070038"></script>
-<script src="js/map.js?v=20261116070038"></script>
-<script src="js/roll.js?v=20261116070038"></script>
-<script src="js/curves.js?v=20261116070038"></script>
-<script src="js/chrome.js?v=20261116070038"></script>
-<script src="js/tips.js?v=20261116070038"></script>
-<script src="js/bridge.js?v=20261116070038"></script>
-<script src="js/bridge-edit.js?v=20261116070038"></script>
-<script src="js/bridge-production.js?v=20261116070038"></script>
+<script src="js/presets.js?v=20261116213148"></script>
+<script src="js/audio.js?v=20261116213148"></script>
+<script src="js/export.js?v=20261116213148"></script>
+<script src="js/unity.js?v=20261116213148"></script>
+<script src="js/app.js?v=20261116213148"></script>
+<script src="js/library.js?v=20261116213148"></script>
+<script src="js/themes.js?v=20261116213148"></script>
+<script src="js/ui.js?v=20261116213148"></script>
+<script src="js/events.js?v=20261116213148"></script>
+<script src="js/map.js?v=20261116213148"></script>
+<script src="js/roll.js?v=20261116213148"></script>
+<script src="js/curves.js?v=20261116213148"></script>
+<script src="js/chrome.js?v=20261116213148"></script>
+<script src="js/tips.js?v=20261116213148"></script>
+<script src="js/bridge.js?v=20261116213148"></script>
+<script src="js/bridge-edit.js?v=20261116213148"></script>
+<script src="js/bridge-production.js?v=20261116213148"></script>
 <script>
 /* Safety net: if the app can't start (e.g. a half-updated page), say so and offer a clean reload
    instead of leaving a broken screen. */

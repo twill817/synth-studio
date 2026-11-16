@@ -2,9 +2,7 @@
    and rendering the Unity package (the MCP server writes it into the Unity project). */
 
 const Production = {
-  trackEmpty(p, t) {
-    return t.type === 'drum' ? !Object.values(p.drums[t.id] || {}).some((r) => r.some((v) => v > 0)) : !(p.notes[t.id] || []).length;
-  },
+  trackEmpty(p, t) { return !partOf(p, t) || !hasMusic(roleOf(t)); },
   sameNotes(a, b) {
     const norm = (ns) => ns.map((n) => `${+n.s.toFixed(3)}:${+n.l.toFixed(3)}:${n.p}`).sort().join(',');
     return norm(a) === norm(b);
@@ -28,7 +26,7 @@ Object.assign(BridgeAPI, {
     if (!score) {
       st.roles.forEach((r) => { if (!App.roleUsage(r.id).tracks) add('note', `Game style › ${r.name}`, 'Role isn\'t used by any score.', 'Use it (add_track) or remove it (manage_role).'); });
       Library.melodies().forEach((t) => {
-        const used = P.scores.filter((s) => s.patterns.some((p) => Object.values(p.origins || {}).some((o) => o.theme === t.id)));
+        const used = P.scores.filter((s) => s.patterns.some((p) => partLanes(s, p).some((x) => { const o = (roleOf(x).music || {}).theme; return o && o.theme === t.id; })));
         if (!used.length) add('note', `Theme › ${t.name}`, 'Theme isn\'t used in any level.', 'insert_theme it somewhere, or ignore.');
         else if (used.length < P.scores.length) add('note', `Theme › ${t.name}`, `Used in ${used.map((s) => s.name).join(', ')} but not in ${P.scores.filter((s) => !used.includes(s)).map((s) => s.name).join(', ')}.`, 'Hearing the main theme in every level helps them feel like one game.');
       });
@@ -54,20 +52,21 @@ Object.assign(BridgeAPI, {
           const ts = partLanes(s, p).filter((t) => { const x = partOf(p, t); return x.layer === l.id && !x.mute; });
           if (i > 0 && ts.length && ts.every((t) => Production.trackEmpty(p, t))) add('note', where, `Layer “${l.name}” is silent here — raising intensity won't add anything in this segment.`);
         });
-        s.tracks.filter((t) => t.type === 'synth').forEach((t) => {
-          const ns = (p.notes[t.id] || []).filter((n) => n.s < p.bars * 16);
+        partLanes(s, p).filter((t) => t.type === 'synth').forEach((t) => {
+          const ns = playNotes(s, t, p.bars * 16);
           if (ns.length < 4) return;
           const out = ns.filter((n) => !scale.includes(((n.p % 12) + 12) % 12)).length;
           if (out / ns.length > 0.15) add('check', `${where} › ${t.name}`, `${Math.round((out / ns.length) * 100)}% of notes are outside ${MusicText.key(s)}.`, 'Intended colour? Otherwise transform_notes or regenerate.');
         });
       });
       stings.forEach((p) => { if (!s.patterns.some((q) => q.entrySting === p.id)) add('note', `${W} › ⚡${p.name}`, 'Sting isn\'t the way into any segment — the game can still play it with PlaySting.'); });
-      s.patterns.forEach((p) => Object.entries(p.origins || {}).forEach(([tid, o]) => {
-        const th = Themes.find(o.theme), t = s.tracks.find((x) => x.id === tid);
-        if (!th || !t) return;
-        const expected = Themes.render(th, { key: s.key, scale: s.scale, bars: p.bars, oct: o.oct, speed: o.speed, fit: o.fit });
-        if (!Production.sameNotes(expected, p.notes[tid] || [])) add('note', `${W} › ${p.name} › ${t.name}`, `Linked to theme “${th.name}” but differs from its current version (edited here, or the theme changed).`, 'reapply_theme to sync, or keep it as a deliberate variation.');
-      }));
+      s.tracks.forEach((t) => {
+        const r = roleOf(t), o = r && r.music && r.music.theme, th = o && Themes.find(o.theme);
+        if (!th || !musicUses(r).some((u) => u.song === s)) return;
+        const m = musicOf(r);
+        const expected = Themes.render(th, { key: s.key, scale: s.scale, bars: m.bars, oct: o.oct, speed: o.speed, fit: o.fit });
+        if (!Production.sameNotes(expected, playNotes(s, t, m.bars * 16))) add('note', `${W} › ${t.name}`, `Linked to theme “${th.name}” but differs from its current version (edited, the theme changed, or this level's scale differs from where it was written).`, 'reapply_theme to sync, or keep it as a deliberate variation.');
+      });
     });
 
     const n = (sev) => issues.filter((i) => i.severity === sev).length;

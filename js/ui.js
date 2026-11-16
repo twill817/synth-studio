@@ -248,32 +248,31 @@ const UI = {
     const base = song.patterns.length;
     const pats = [];
     for (let i = 0; i < nPat; i++) { const p = makePattern('MIDI ' + (i + 1), 4); song.patterns.push(p); pats.push(p); }
+    // Each channel of each 4-bar track becomes an instrument (it owns those notes).
     const chans = [...new Set(notes.map((n) => n.ch))];
-    const trackFor = {};
-    const roleFor = (kind, name) => {
-      let r = App.style.roles.find((x) => (kind === 'drum' ? x.type === 'drum' : x.name === name));
-      if (!r) { r = makeRole(kind, name); App.style.roles.push(r); }
-      return r;
+    const laneFor = {};
+    const lane = (ch, pi) => {
+      const k = ch + ':' + pi;
+      if (laneFor[k]) return laneFor[k];
+      const name = `${ch === 9 ? 'MIDI drums' : 'MIDI ch ' + (ch + 1)}${nPat > 1 ? ` · ${pi + 1}` : ''}`;
+      const r = makeRole(ch === 9 ? 'drum' : 'piano', name);
+      r.music = ch === 9 ? { bars: 4 } : { bars: 4, key: song.key, notes: [] };
+      App.style.roles.push(r);
+      musicOf(r);
+      return (laneFor[k] = addInstrumentToPattern(song, pats[pi], r));
     };
-    chans.forEach((ch) => {
-      if (ch === 9) {
-        let d = song.tracks.find((t) => t.type === 'drum');
-        if (!d) { d = makeTrack(roleFor('drum', 'Drums')); song.tracks.push(d); }
-        trackFor[ch] = d;
-      } else { const t = makeTrack(roleFor('piano', 'Piano'), 'MIDI ch ' + (ch + 1)); song.tracks.push(t); trackFor[ch] = t; }
-    });
-    ensureAll();
     const gmMap = { 35: 'kick', 36: 'kick', 37: 'rim', 38: 'snare', 40: 'snare', 39: 'clap', 42: 'chh', 44: 'chh', 46: 'ohh', 41: 'ltom', 43: 'ltom', 45: 'ltom', 47: 'htom', 48: 'htom', 50: 'htom', 49: 'crash', 57: 'crash', 51: 'chh', 56: 'cow' };
     notes.forEach((n) => {
       const step = n.start / tps, pi = Math.floor(step / 64), local = step - pi * 64;
-      const pat = pats[pi], t = trackFor[n.ch];
-      if (!pat) return;
+      if (!pats[pi]) return;
+      const t = lane(n.ch, pi);
       if (t.type === 'drum') {
         const v = gmMap[n.p];
         const s = Math.round(local);
-        if (v && s < 64) pat.drums[t.id][v][s] = Math.max(pat.drums[t.id][v][s], n.v);
-      } else pat.notes[t.id].push({ s: Math.round(local * 2) / 2, l: Math.max(0.5, Math.round((n.len / tps) * 2) / 2), p: n.p, v: n.v });
+        if (v && s < 64) setDrumAt(t, v, s, Math.max(drumAt(t, v, s), n.v));
+      } else laneMusic(t).notes.push({ s: Math.round(local * 2) / 2, l: Math.max(0.5, Math.round((n.len / tps) * 2) / 2), p: n.p, v: n.v });
     });
+    void chans;
     song.arrangement.push(...pats.map((_, i) => base + i));
     App.sel.pattern = base;
     Engine.sync(); this.renderAll(); App.changed();
@@ -286,17 +285,18 @@ const UI = {
       const [kind, val] = $('#addTrackPreset').value.split(':');
       const p = App.pattern();
       if (!p) return toast('Make a segment or sting first (the map’s + Segment)');
-      App.pushUndo();
       let role = App.role(val);
+      const have = role && App.song.tracks.find((x) => x.role === role.id && partOf(p, x));
+      if (have) { this.selectTrack(have.id); this.followTrackView(have); return toast(`“${role.name}” already plays in “${p.name}”. For a different part, Duplicate it in the Library tab and add the copy.`, 4500); }
+      App.pushUndo();
       if (kind === 'new') { role = makeRole(val); App.style.roles.push(role); }
       const t = addInstrumentToPattern(App.song, p, role);
       App.sel.track = t.id; App.sel.role = null;
-      const src = copyPartsFromOriginal(App.song, p, t);
       if (t.type === 'drum') this.beatTrackId = t.id;
       Engine.sync(); this.renderAll(); App.changed();
       this.followTrackView(t);
       if (kind === 'new') toast(`Added the instrument “${role.name}” to the Library`);
-      else if (src) toast(`“${t.name}” plays the same ${t.type === 'drum' ? 'beats' : 'notes'}${hasCurves(partOf(p, t).curves) ? ' and curves' : ''} as “${src.lane.name}” in “${(src.pattern || p).name}”${src.pattern ? ' (copied into this track)' : ''} — change them freely`, 3500);
+      else if (hasMusic(role)) toast(`“${role.name}” plays its ${t.type === 'drum' ? 'beat' : 'notes'} here too — edits change it everywhere it plays`, 3500);
     };
     this.initScores();
     const tl = $('#trackList');
@@ -319,7 +319,7 @@ const UI = {
         App.pushUndo();
         removeInstrumentFromPattern(App.song, p, t);
         Engine.sync(); this.renderAll(); App.changed();
-        undoToast(`Removed “${t.name}” from “${p.name}”`);
+        undoToast(`Took “${t.name}” out of “${p.name}” (its ${t.type === 'drum' ? 'beat' : 'notes'} stay with the instrument)`);
         return;
       }
       this.selectTrack(t.id);
@@ -337,7 +337,7 @@ const UI = {
       if (!b) return;
       const p = App.pattern(), name = (Library.find(p.lib || p.from) || {}).name;
       App.pushUndo();
-      if (b.dataset.libact === 'own') { Library.ownVersion(p); App.changed(); toast(`This is now ${App.song.name}’s own version of “${name}”. Edits stay in this level.`, 3500); }
+      if (b.dataset.libact === 'own') { Library.ownVersion(p); App.changed(); toast(`This is now ${App.song.name}’s own version of “${name}”. Changes to which instruments play here, and their mix, stay in this level. (Notes belong to the instruments: duplicate one for different notes.)`, 4500); }
       else { Library.relink(p); App.changed(); undoToast(`Back to the library’s “${name}”`); }
       Roll.sel.clear();
       this.renderPatterns(); this.renderBeat(); this.renderRollBar(); this.renderLibrary(); Roll.draw();
@@ -352,14 +352,14 @@ const UI = {
     let badge = '', more = '';
     if (p.lib && Library.of(p)) {
       const it = Library.of(p), also = Library.alsoIn(p, s);
-      badge = `<span class="scope style" title="${also.length ? `Also plays in ${esc(also.join(', '))} — edits here change it there too` : 'Only in this level so far'}">From the library${also.length ? ` · also in ${also.length} level${also.length > 1 ? 's' : ''}` : ''}</span>`;
+      badge = `<span class="scope style" title="${also.length ? `Also plays in ${esc(also.join(', '))} — changing its instruments or mix here changes it there too` : 'Only in this level so far'}">From the library${also.length ? ` · also in ${also.length} level${also.length > 1 ? 's' : ''}` : ''}</span>`;
       more = `<div class="pop-sec"><span class="scope style">From the library</span> <b>${esc(it.name)}</b>
-        <p class="muted">${also.length ? `Also plays in ${esc(also.join(', '))} — edits here change it there too.` : 'Only in this level so far.'}${it.scale !== s.scale ? ` Written in ${SCALES[it.scale].name.toLowerCase()} (notes move to this level's key by whole semitones).` : ''}</p>
-        <button data-libact="own" title="Split this pattern off so edits stay in ${esc(s.name)}">Make a version for this level</button></div>`;
+        <p class="muted">${also.length ? `Also plays in ${esc(also.join(', '))} — changing its instruments or mix here changes it there too.` : 'Only in this level so far.'} Its instruments play their own notes, moved into this level's key.</p>
+        <button data-libact="own" title="Split this pattern off so changes to its instruments and mix stay in ${esc(s.name)}">Make a version for this level</button></div>`;
     } else if (p.from && Library.find(p.from)) {
-      badge = `<span class="scope level" title="Edits stay in ${esc(s.name)}">This level’s own version</span>`;
+      badge = `<span class="scope level" title="Its instruments and mix are this level’s own">This level’s own version</span>`;
       more = `<div class="pop-sec"><span class="scope level">This level’s own version</span> <b>${esc(Library.find(p.from).name)}</b>
-        <p class="muted">Edits stay in ${esc(s.name)}.</p>
+        <p class="muted">Changes to its instruments and mix stay in ${esc(s.name)}. (Notes belong to the instruments.)</p>
         <button data-libact="relink" title="Drop this level's changes and use the library's version again">Back to the library version</button></div>`;
     }
     const head = `<b class="pb-name">${p.kind === 'sting' ? '⚡ ' : ''}${esc(p.name)}</b><span class="muted pb-kind">${p.kind === 'sting' ? 'sting' : 'segment'}</span>${badge}`;
@@ -482,13 +482,11 @@ const UI = {
     $('#btnAddScore').onclick = () => {
       App.pushUndo();
       const s = makeScore('Level ' + (App.project.scores.length + 1));
-      App.style.roles.forEach((r) => s.tracks.push(makeTrack(r)));
       s.patterns.push(makePattern('Main', 2));
       s.arrangement = [0];
-      ensureAll(s);
       App.project.scores.push(s);
       App.switchScore(App.project.scores.length - 1);
-      toast(`New level uses the game style: ${App.style.roles.length} instruments, ${NOTE_NAMES[s.key]} ${SCALES[s.scale].name}, ${s.bpm} BPM`);
+      toast(`New level in ${NOTE_NAMES[s.key]} ${SCALES[s.scale].name}, ${s.bpm} BPM. Add the game's instruments to its first segment from the sidebar, or place segments from the Library.`, 4500);
     };
     $('#btnDupScore').onclick = () => {
       App.pushUndo();
@@ -544,11 +542,11 @@ const UI = {
         <span class="dot" style="background:${t.color}"></span>
         <span class="name">${esc(t.name)}</span>
         ${t.sound ? '<span class="flavor" title="Custom sound for this level">✦</span>' : ''}
-        ${hasCurves(x.curves) ? '<span class="curve-mark" title="Has curves in this track">〰</span>' : ''}
+        ${hasCurves((roleOf(t) || {}).curves) ? '<span class="curve-mark" title="Has curves">〰</span>' : ''}
         <button class="edit" data-act="rename" title="Rename">✎</button>
         <button class="ms m ${x.mute ? 'on' : ''}" data-act="m" title="Mute in this track">M</button>
         <button class="ms s ${x.solo ? 'on' : ''}" data-act="s" title="Solo in this track">S</button>
-        <button class="x" data-act="del" title="Remove from this track (its notes here go too)">✕</button>
+        <button class="x" data-act="del" title="Take it out of this track (its notes stay with the instrument)">✕</button>
       </div>`;
     }).join('') || '<p class="muted">No instruments yet — add one below.</p>';
     if (typeof Curves !== 'undefined' && (this.view === 'roll' || this.view === 'beat')) Curves.render();   // its target follows the selected instrument
@@ -577,11 +575,13 @@ const UI = {
     $('#beatKit').onchange = (e) => { const t = this.drumTrack(); if (!t) return; App.pushUndo(); snd(t).kit = e.target.value; this.renderInst(); this.renderStyle(); App.changed(); };
     $('#btnBeatApply').onclick = () => {
       const t = this.drumTrack(); if (!t) return;
-      App.pushUndo(); applyBeat(App.pattern(), t.id, $('#beatLoop').value); this.renderBeat(); App.changed();
+      App.pushUndo(); applyBeat(roleOf(t), $('#beatLoop').value); this.renderBeat(); App.changed();
+      Roll.toastShared(t, `Loaded “${$('#beatLoop').value}”`);
     };
     $('#btnBeatClear').onclick = () => {
       const t = this.drumTrack(); if (!t) return;
-      App.pushUndo(); applyBeat(App.pattern(), t.id, 'Clear'); this.renderBeat(); App.changed();
+      App.pushUndo(); applyBeat(roleOf(t), 'Clear'); this.renderBeat(); App.changed();
+      Roll.toastShared(t, 'Cleared');
     };
     $('#btnBeatDouble').onclick = () => this.doublePattern();
     $$('.barsSel').forEach((sel) => (sel.onchange = (e) => {
@@ -589,6 +589,16 @@ const UI = {
       App.pattern().bars = +e.target.value;
       ensurePattern(App.pattern());
       this.renderPatterns(); this.renderBeat(); this.renderArrange(); this.renderAdaptive(); Roll.draw(); App.changed();
+    }));
+    // An instrument's own length (its part repeats in longer tracks); changes it everywhere it plays.
+    $$('.partLen').forEach((sel) => (sel.onchange = (e) => {
+      const t = e.target.dataset.for === 'beat' ? this.drumTrack() : Roll.track();
+      if (!t) return;
+      App.pushUndo();
+      setMusicBars(roleOf(t), +e.target.value);
+      this.renderBeat(); Roll.draw(); App.changed();
+      const also = usesText(roleOf(t), App.pattern());
+      toast(`“${t.name}” now repeats every ${e.target.value} bar${+e.target.value > 1 ? 's' : ''}${also ? ` — also in ${also}` : ''}`, 3000);
     }));
 
     const grid = $('#beatGrid');
@@ -598,21 +608,21 @@ const UI = {
       const st = e.target.closest('.step[data-v]');
       if (st) {
         e.preventDefault();
-        const t = this.drumTrack();
-        const row = App.pattern().drums[t.id][st.dataset.v];
+        const t = this.drumTrack(), v = st.dataset.v;
         const s = +st.dataset.s;
         App.pushUndo();
         if (e.shiftKey || e.button === 2) {
-          const cur = row[s];
-          row[s] = cur >= 0.9 ? 0.6 : cur >= 0.5 ? 0.35 : cur > 0 ? 0 : 1;
+          const cur = drumAt(t, v, s);
+          setDrumAt(t, v, s, cur >= 0.9 ? 0.6 : cur >= 0.5 ? 0.35 : cur > 0 ? 0 : 1);
           paint = null;
         } else {
-          paint = row[s] > 0 ? 0 : 0.8;
-          row[s] = paint;
-          if (paint) Live.drumHit(t, st.dataset.v, 0.8 * 0.7);
+          paint = drumAt(t, v, s) > 0 ? 0 : 0.8;
+          setDrumAt(t, v, s, paint);
+          if (paint) Live.drumHit(t, v, 0.8 * 0.7);
         }
-        this.styleStep(st, row[s]);
+        this.styleSteps(t, v, s);
         App.changed();
+        if (this._beatSaid !== t.role + App.pattern().id) { this._beatSaid = t.role + App.pattern().id; Roll.toastShared(t, 'Edited'); }
         return;
       }
       const pad = e.target.closest('.pad');
@@ -630,9 +640,9 @@ const UI = {
       if (paint === null || !e.buttons) return;
       const st = e.target.closest('.step[data-v]');
       if (!st) return;
-      const row = App.pattern().drums[this.drumTrack().id][st.dataset.v];
-      row[+st.dataset.s] = paint;
-      this.styleStep(st, paint);
+      const t = this.drumTrack();
+      setDrumAt(t, st.dataset.v, +st.dataset.s, paint);
+      this.styleSteps(t, st.dataset.v, +st.dataset.s);
     });
     window.addEventListener('pointerup', () => { if (paint !== null) App.changed(); paint = null; });
     wire(grid, (el) => {
@@ -657,18 +667,29 @@ const UI = {
     el.classList.toggle('v2', v > 0 && v < 0.75 && v >= 0.5);
     el.classList.toggle('v1', v > 0 && v < 0.5);
   },
+  /* Restyle a step and every repeat of it (the beat repeats over the track). */
+  styleSteps(t, v, s) {
+    const L = musicSteps(roleOf(t)), val = drumAt(t, v, s);
+    $$(`#beatGrid .step[data-v="${v}"]`).forEach((el) => { if (+el.dataset.s % L === s % L) this.styleStep(el, val); });
+  },
+  /* Double the track's length. Its instruments that were as long as the track double too (the same
+     sound, now with room to vary the second half); elsewhere they only play their start, as before. */
   doublePattern() {
     const p = App.pattern();
     if (p.bars >= 8) return toast('Patterns can be at most 8 bars');
     App.pushUndo();
-    const steps = p.bars * 16;
-    Object.values(p.drums).forEach((g) => Object.keys(g).forEach((v) => { const r = g[v].slice(0, steps); g[v] = r.concat(r); }));
-    Object.keys(p.notes).forEach((id) => {
-      const ns = p.notes[id].filter((n) => n.s < steps);
-      p.notes[id] = ns.concat(ns.map((n) => ({ ...n, s: n.s + steps })));
-    });
+    partLanes(App.song, p).forEach((t) => { const r = roleOf(t); if (musicOf(r).bars === p.bars) setMusicBars(r, p.bars * 2); });
     p.bars *= 2;
     this.renderPatterns(); this.renderBeat(); this.renderArrange(); Roll.draw(); App.changed();
+  },
+  /* The "repeats every" control for the instrument an editor shows. */
+  renderPartLen(which, t) {
+    const sel = $(`.partLen[data-for="${which}"]`);
+    if (!sel) return;
+    sel.closest('label').hidden = !t;
+    if (!t) return;
+    const b = musicOf(roleOf(t)).bars, opts = [...new Set([1, 2, 4, 8, b])].sort((x, y) => x - y);
+    sel.innerHTML = opts.map((n) => `<option value="${n}" ${n === b ? 'selected' : ''}>${n} bar${n > 1 ? 's' : ''}</option>`).join('');
   },
   renderBeat() {
     Curves.render();
@@ -679,14 +700,14 @@ const UI = {
     this.beatCols = [];
     $('#beatTrack').closest('label').hidden = drums.length < 2;
     $('#beatScope').hidden = !t;
+    this.renderPartLen('beat', t);
     if (!t) { grid.innerHTML = '<p class="muted">This track has no drums. Add a drum instrument from the sidebar (+ Instrument).</p>'; return; }
     const ds = snd(t);
     $('#beatKit').value = ds.kit;
     $('#beatScope').textContent = t.sound ? 'Customized for this level' : `From the library · ${roleOf(t).name}`;
     $('#beatScope').className = 'scope ' + (t.sound ? 'level' : 'style');
     const pat = App.pattern();
-    ensurePattern(pat);
-    const steps = pat.bars * 16;
+    const steps = pat.bars * 16, L = musicSteps(roleOf(t));
     const stepsHtml = (fn) => {
       let h = '';
       for (let b = 0; b < pat.bars; b++) {
@@ -698,7 +719,7 @@ const UI = {
     let html = `<div class="beat-ruler"><div class="beat-head"></div>${stepsHtml((s) => `<div class="step">${s % 4 === 0 ? (s % 16 === 0 ? s / 16 + 1 : '·') : ''}</div>`)}</div>`;
     for (const v of DRUM_VOICES) {
       const vs = ds.voices[v.id];
-      const row = pat.drums[t.id][v.id];
+      const row = Array.from({ length: steps }, (_, s) => drumAt(t, v.id, s));
       const smpName = vs.sample && App.samples[vs.sample] ? App.samples[vs.sample].name : '';
       html += `<div class="beat-row" data-v="${v.id}" style="--c:${t.color}">
         <div class="beat-head">
@@ -711,7 +732,7 @@ const UI = {
         </div>
         ${stepsHtml((s) => {
           const val = row[s] || 0;
-          const cls = ['step', s % 4 === 0 ? 'beat' : '', val > 0 ? 'on' : '', val > 0 && val < 0.5 ? 'v1' : val > 0 && val < 0.75 ? 'v2' : ''].join(' ');
+          const cls = ['step', s % 4 === 0 ? 'beat' : '', s >= L ? 'rep' : '', s && s % L === 0 ? 'rep-start' : '', val > 0 ? 'on' : '', val > 0 && val < 0.5 ? 'v1' : val > 0 && val < 0.75 ? 'v2' : ''].join(' ');
           return `<div class="${cls}" data-v="${v.id}" data-s="${s}"></div>`;
         })}
       </div>`;
@@ -750,6 +771,7 @@ const UI = {
       hidden.has('drums') ? 'Show the drum strip above the roll' : 'Hide the drum strip', '');
     if (synths.length > 1) h += '<button class="rc-all" data-all="show" title="Show every track">All</button><button class="rc-all" data-all="hide" title="Hide every track except the one you write into">None</button>';
     $('#rollChips').innerHTML = h || '<span class="muted">No instruments with notes in this track — add one from the sidebar (+ Instrument)</span>';
+    this.renderPartLen('roll', cur);
   },
 
   /* ---------- playthrough: a level's patterns in a fixed order, for plain audio/MIDI export ----------
@@ -1071,7 +1093,7 @@ const UI = {
         const kept = it.kind === 'melody' ? 0 : Library.uses(it).filter((u) => u.linked).length;
         Library.remove(it);
         App.changed(); this.renderAll();
-        return undoToast(`Deleted “${it.name}” from the library` + (kept ? ` — ${kept} level${kept > 1 ? 's' : ''} keep${kept > 1 ? '' : 's'} its notes as their own version` : ''));
+        return undoToast(`Deleted “${it.name}” from the library` + (kept ? ` — ${kept} level${kept > 1 ? 's' : ''} keep${kept > 1 ? '' : 's'} it as their own version` : ''));
       }
     });
     lp.addEventListener('dblclick', (e) => {
@@ -1097,7 +1119,8 @@ const UI = {
     const chips = [['all', 'All'], ['segment', 'Segments'], ['sting', 'Stings'], ['melody', 'Melodies (themes)']]
       .map(([k, l]) => `<button class="chip-btn ${f === k ? 'on' : ''}" data-filter="${k}">${l} <span class="muted">${count(k)}</span></button>`).join('');
     const row = (it) => {
-      const key = `${NOTE_NAMES[it.key]} ${SCALES[it.scale].name.toLowerCase()}`;
+      const key = it.kind === 'melody' ? `${NOTE_NAMES[it.key]} ${SCALES[it.scale].name.toLowerCase()}`
+        : Library.orderOf(it).map((id) => esc(App.role(id).name)).join(', ') || 'no instruments';
       let used, acts;
       if (it.kind === 'melody') {
         const n = Themes.usage(it.id);
@@ -1114,12 +1137,12 @@ const UI = {
         <span class="snd">${it.bars} bar${it.bars > 1 ? 's' : ''} · ${key}</span>
         <span class="muted use">${used}</span>
         <span class="acts">${acts}<button data-act="dup" title="Copy as a new library item">Duplicate</button></span>
-        <button class="x" data-act="del" title="${it.kind === 'melody' ? 'Delete melody (notes already in levels stay)' : 'Delete from the library (levels that use it keep their notes as their own version)'}">✕</button>
+        <button class="x" data-act="del" title="${it.kind === 'melody' ? 'Delete melody (notes already in levels stay)' : 'Delete from the library (levels that use it keep it as their own version)'}">✕</button>
       </div>`;
     };
     lp.innerHTML = `${this.instrumentsHTML()}<section class="style-sec lib-sec">
       <h4 class="subhead">Segments, stings and melodies</h4>
-      <p class="muted">Every segment, sting and melody in the game. Levels place patterns <b>linked</b>: edit one in any level and it changes everywhere it's linked, moved into each level's key. “Make a version for this level” (above the Beat grid and Piano Roll) splits one off. Melodies are the game's themes: insert them from the Piano Roll.</p>
+      <p class="muted">Every segment, sting and melody in the game. A segment or sting is a set of instruments, each playing its own notes. Levels place them <b>linked</b>: change which instruments play (or their mix) in any level and it changes everywhere it's linked. “Make a version for this level” (above the Beat grid and Piano Roll) splits one off. Melodies are the game's themes: insert them from the Piano Roll.</p>
       <div class="lib-filters">${chips}</div>
       <div class="role-list">${items.map(row).join('') || '<p class="muted">Nothing here yet.</p>'}</div>
     </section>`;
@@ -1130,7 +1153,7 @@ const UI = {
     const st = App.style;
     return `<section class="style-sec lib-sec">
       <h4 class="subhead">Instruments</h4>
-      <p class="muted">The game's instruments, each with its own sound and default mix. Tracks (segments and stings) combine them, so changing one here changes it everywhere it plays — except levels that customized it (✦). Click one to edit it below and play it on the keyboard; add it to the open track with the sidebar's + Instrument.</p>
+      <p class="muted">The game's instruments. Each one has its own notes or beat, curves, sound and default mix. Tracks (segments and stings) just say which instruments play, so editing an instrument's notes in any track changes them everywhere it plays. For a different part, Duplicate the instrument. A level can customize an instrument's sound (✦). Click one to edit it below and play it on the keyboard; add it to the open track with the sidebar's + Instrument.</p>
       <div class="role-list">${st.roles.map((r) => {
         const u = App.roleUsage(r.id);
         const custom = u.tracks - u.shared;
@@ -1139,7 +1162,7 @@ const UI = {
         return `<div class="role-row ${App.sel.role === r.id ? 'sel' : ''}" data-id="${r.id}" title="Click to edit · double-click name to rename">
           <span class="dot" style="background:${r.color}"></span>
           <span class="name">${esc(r.name)}</span><button class="edit" data-act="rename" title="Rename instrument">✎</button>
-          <span class="snd">${esc(soundName(r))}</span>
+          <span class="snd">${esc(soundName(r))} · ${musicSummary(r)}</span>
           <span class="muted use" title="${esc(where)}">${u.tracks ? `in ${inTracks} track${inTracks === 1 ? '' : 's'} · ${u.scores} level${u.scores > 1 ? 's' : ''}${custom ? ` · <span class="flavor">✦${custom} customized</span>` : ''}` : 'not used yet'}</span>
           <button data-act="dupRole" title="Copy as a new instrument (same sound and mix) to vary">Duplicate</button>
           <button class="x" data-act="del" title="${u.tracks ? `Can't delete: played in ${esc(where)}. Remove those tracks first.` : 'Delete instrument (not used by any level)'}" ${u.tracks ? 'disabled' : ''}>✕</button>
@@ -1172,6 +1195,7 @@ const UI = {
       if (App.roleUsage(r.id).tracks) return true;
       App.pushUndo();
       App.style.roles = App.style.roles.filter((x) => x !== r);
+      Library.forgetRole(r.id);
       if (App.sel.role === r.id) App.sel.role = null;
       after(); App.changed();
       undoToast(`Deleted the instrument “${r.name}”`);
@@ -1185,7 +1209,7 @@ const UI = {
       App.style.roles.splice(App.style.roles.indexOf(r) + 1, 0, c);
       App.sel.role = c.id;
       after(); App.changed();
-      toast(`Made “${c.name}” — change its sound below`); if (!Drawer.sound) Drawer.set('sound', true);
+      toast(`Made “${c.name}” with the same ${r.type === 'drum' ? 'beat' : 'notes'}, sound and mix — add it to a track from the sidebar, then change it there without touching “${r.name}”`, 4500); if (!Drawer.sound) Drawer.set('sound', true);
       return true;
     }
     App.sel.role = r.id;

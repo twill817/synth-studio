@@ -7,18 +7,20 @@
                roles[],                   // the game's instrument roster, shared by every score
                mix }                      // master chain, shared by every score
    role    = { id, name, color, type:'synth', preset, synth } | { id, name, color, type:'drum', kit, voices }
+             + music (its notes or beats: see musicOf), curves/curveBars (its curves), mix (default mix)
    score   = { id, name, bpm, swing, key, scale, tracks[], patterns[], arrangement[],
                layers[],                  // adaptive intensity layers, base first: [{id, name}]
                adaptive: { quant } }      // when a segment change happens: 'beat' | 'bar' | 'end'
-   track   = { id, name, role, type, color, vol, pan, mute, solo, drive, tone, rev, dly,
-               layer,                     // id of the intensity layer this track belongs to
-               sound,                     // null = use the role's sound; otherwise a per-level override
+   track   = { id, name, role, type, color, // a lane: one per instrument in a level
+               sound }                    // null = use the role's sound; otherwise a per-level override
                                           // ({preset, synth} or {kit, voices}) — the level's "flavor"
-               part }                     // which part of a library pattern it plays (role id, role:2 …)
-   pattern = { id, name, bars, drums, notes,
+   pattern = { id, name, bars,
+               parts,                     // the instruments that play in it, each with its mix (see below)
                kind,                      // 'loop' = a segment the game can sit in; 'sting' = plays once
                entrySting,                // id of a sting to play when the game switches to this segment
+               curves,                    // a sting's Speed only
                lib, from, libSig }        // library link: see js/library.js
+   A segment never holds notes: each instrument plays its own music (docs/instrument-music-plan.md).
 */
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -75,6 +77,121 @@ function makeTrack(role, name) {
   return { id: uid(), name: name || role.name, role: role.id, type: role.type, color: role.color, sound: null };
 }
 
+/* ---------- an instrument's music: its notes or beats, shared by every track and level it plays in ----------
+   role.music = { bars, key, notes: [{ s, l, p, v }], theme? }   synth: pitches written in `key`
+              | { bars, drums: { voiceId: steps[] } }          drums: bars×16 steps per voice
+   theme = { theme, oct, speed, fit }: the library melody its notes came from.
+   In a track the instrument plays from the start: it repeats if the track is longer, and is cut if the
+   track is shorter. In a level in another key, pitched notes move by whole semitones (the short way). */
+function musicOf(r) {
+  if (!r) return null;
+  if (!r.music) r.music = { bars: 2 };
+  const m = r.music;
+  m.bars = Math.max(1, Math.round(m.bars) || 2);
+  if (r.type === 'drum') {
+    const n = m.bars * 16;
+    m.drums = m.drums || {};
+    DRUM_VOICES.forEach((v) => {
+      const row = (m.drums[v.id] || []).slice(0, n);
+      while (row.length < n) row.push(0);
+      m.drums[v.id] = row;
+    });
+    delete m.notes; delete m.key; delete m.theme;
+  } else {
+    m.notes = m.notes || [];
+    if (typeof m.key !== 'number') m.key = App.project ? App.project.style.key : 0;
+    delete m.drums;
+  }
+  return m;
+}
+function laneMusic(t) { return musicOf(roleOf(t)); }
+function musicSteps(r) { return musicOf(r).bars * 16; }
+/* Semitones a level moves an instrument's notes: from the key they're written in to the level's. */
+function keyShift(song, r) {
+  const m = r && r.music;
+  if (!m || r.type === 'drum' || typeof m.key !== 'number') return 0;
+  const d = (((song.key - m.key) % 12) + 12) % 12;
+  return d > 6 ? d - 12 : d;
+}
+/* The notes lane t plays in a track `steps` 16ths long, in the level's key, repeated or cut:
+   [{ s, l, p, v, n (the instrument's stored note), off (16ths this repeat starts at) }] by start. */
+function playNotes(song, t, steps) {
+  const r = roleOf(t);
+  if (!r || r.type === 'drum') return [];
+  const m = musicOf(r), L = m.bars * 16, d = keyShift(song, r), out = [];
+  for (let off = 0; off < steps; off += L) {
+    m.notes.forEach((n) => {
+      const s = n.s + off;
+      if (n.s < L && s < steps) out.push({ s, l: Math.min(n.l, steps - s), p: clamp(n.p + d, 0, 127), v: n.v, n, off });
+    });
+  }
+  return out.sort((a, b) => a.s - b.s || a.p - b.p);
+}
+/* A note in the level's key at track position s, as the instrument stores it. */
+function storeNote(song, t, x) {
+  const r = roleOf(t), L = musicSteps(r);
+  const s = ((x.s % L) + L) % L;
+  return { s, l: x.l, p: clamp(x.p - keyShift(song, r), 0, 127), v: x.v };
+}
+/* Replace (or add to) an instrument's notes with notes in the level's key over a track `bars` long.
+   Replacing writes them in this level's key and makes that the instrument's length. */
+function writeLaneNotes(song, t, notes, bars, mode = 'replace') {
+  const r = roleOf(t), m = musicOf(r);
+  if (mode === 'replace') {
+    m.key = song.key; m.bars = Math.max(1, bars);
+    m.notes = notes.filter((n) => n.s < m.bars * 16).map((n) => ({ s: n.s, l: n.l, p: clamp(n.p, 0, 127), v: n.v }));
+    delete m.theme;
+  } else notes.forEach((n) => m.notes.push(storeNote(song, t, n)));
+  return m;
+}
+/* A drum hit at track step s (the instrument's beats repeat), and setting one. */
+function drumAt(t, voice, s) {
+  const m = laneMusic(t), row = m && m.drums && m.drums[voice];
+  return row ? row[s % (m.bars * 16)] || 0 : 0;
+}
+function setDrumAt(t, voice, s, v) {
+  const m = laneMusic(t);
+  m.drums[voice][s % (m.bars * 16)] = v;
+}
+/* Does the instrument play anything (notes or hits)? */
+function hasMusic(r) {
+  const m = r && r.music;
+  if (!m) return false;
+  return m.drums ? Object.values(m.drums).some((row) => row.some((v) => v > 0)) : (m.notes || []).length > 0;
+}
+/* Change an instrument's length: longer repeats what it has, shorter cuts the end. */
+function setMusicBars(r, bars) {
+  const m = musicOf(r), L = m.bars * 16, n = bars * 16;
+  if (m.drums) Object.keys(m.drums).forEach((v) => { const row = m.drums[v]; m.drums[v] = Array.from({ length: n }, (_, i) => row[i % L] || 0); });
+  else {
+    const out = [];
+    for (let off = 0; off < n; off += L) m.notes.forEach((x) => { if (x.s + off < n) out.push({ ...x, s: x.s + off }); });
+    m.notes = out;
+  }
+  m.bars = bars;
+}
+/* "16 notes · 2 bars" / "beat · 1 bar" / "no notes yet". */
+function musicSummary(r) {
+  const m = musicOf(r);
+  if (!hasMusic(r)) return r.type === 'drum' ? 'no beat yet' : 'no notes yet';
+  const len = `${m.bars} bar${m.bars > 1 ? 's' : ''}`;
+  return r.type === 'drum' ? `beat · ${len}` : `${m.notes.length} note${m.notes.length > 1 ? 's' : ''} · ${len}`;
+}
+/* Where an instrument plays: [{ song, pattern }] across the game. */
+function musicUses(r) {
+  const out = [];
+  App.project.scores.forEach((s) => s.patterns.forEach((p) => {
+    if (partLanes(s, p).some((t) => t.role === r.id)) out.push({ song: s, pattern: p });
+  }));
+  return out;
+}
+function usesText(r, except) {
+  const u = musicUses(r).filter((x) => x.pattern !== except);
+  if (!u.length) return '';
+  const names = u.map((x) => (x.song === App.song ? x.pattern.name : `${x.song.name} › ${x.pattern.name}`));
+  return names.length > 3 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ');
+}
+
 /* ---------- parts: the instruments in a track (level pattern), each with its own mix ----------
    p.parts = [{ t: laneId, vol, pan, drive, tone, rev, dly, layer, mute, solo }] in order. */
 const LEGACY_LANE_KEYS = ['vol', 'pan', 'drive', 'tone', 'rev', 'dly', 'layer', 'mute', 'solo'];
@@ -88,7 +205,7 @@ function laneMix(song, t, except) {
 /* A new part for lane t: the lane's usual mix in this level, else its instrument's default mix. */
 function newPart(song, t, except) {
   const m = laneMix(song, t, except);
-  if (m) { const x = { ...clone(m), t: t.id }; delete x.curves; return x; }   // curves belong to their own track
+  if (m) { const x = { ...clone(m), t: t.id }; delete x.curves; return x; }   // (curves belong to the instrument)
   const role = App.project.style.roles.find((r) => r.id === t.role);
   const mix = { ...defaultInstMix(role || t), ...((role && role.mix) || {}) };
   const part = { t: t.id, layer: song.layers[0].id, mute: false, solo: false };
@@ -99,23 +216,25 @@ function normalizePart(song, x) {
   if (!song.layers.some((l) => l.id === x.layer)) x.layer = song.layers[0].id;
   x.mute = !!x.mute; x.solo = !!x.solo;
 }
-/* Add an instrument to a track: reuse a lane of that instrument the track doesn't have yet, else add one. */
-function addInstrumentToPattern(song, p, role, name) {
-  let t = name ? null : song.tracks.find((x) => x.role === role.id && !partOf(p, x));
-  if (!t) {
-    const n = song.tracks.filter((x) => x.role === role.id).length;
-    t = makeTrack(role, name || (n ? `${role.name} ${n + 1}` : role.name));
-    song.tracks.push(t);
-  }
-  p.parts.push(newPart(song, t, p));
-  ensurePattern(p, song);
+/* The level's lane for an instrument (one per instrument), made if the level has none yet. */
+function laneForRole(song, role) {
+  let t = song.tracks.find((x) => x.role === role.id);
+  if (!t) { t = makeTrack(role); song.tracks.push(t); }
   return t;
 }
-/* Take an instrument out of a track (its notes there go too). */
+/* Add an instrument to a track. It plays its own music; a track can't play the same one twice
+   (returns null then — duplicate the instrument for a second part). */
+function addInstrumentToPattern(song, p, role) {
+  const t = laneForRole(song, role);
+  if (partOf(p, t)) return null;
+  p.parts.push(newPart(song, t, p));
+  ensurePattern(p, song);
+  musicOf(role);
+  return t;
+}
+/* Take an instrument out of a track (its music stays with the instrument). */
 function removeInstrumentFromPattern(song, p, t) {
   p.parts = p.parts.filter((x) => x.t !== t.id);
-  if (t.type === 'drum') p.drums[t.id] = {}; else p.notes[t.id] = [];
-  if (p.origins) delete p.origins[t.id];
   ensurePattern(p, song);
   return pruneLanes(song);
 }
@@ -126,11 +245,11 @@ function pruneLanes(song) {
   const gone = song.tracks.filter((t) => !used.has(t.id) && !t.sound);
   if (!gone.length) return [];
   song.tracks = song.tracks.filter((t) => !gone.includes(t));
-  song.patterns.forEach((p) => gone.forEach((t) => { delete p.notes[t.id]; delete p.drums[t.id]; if (p.origins) delete p.origins[t.id]; }));
   return gone;
 }
-/* ---------- curves (step 6c): shape each instrument in a track over the track's length ----------
-   part.curves = { [param]: [{ s, v, k? }] } (one instrument in a track); p.curves only holds a sting's Speed.
+/* ---------- curves: shape an instrument over time ----------
+   role.curves = { [param]: [{ s, v, k? }] }, repeating every role.curveBars bars wherever it plays;
+   p.curves only holds a sting's Speed. (Older projects had curves per instrument per track: part.curves.)
    s = position in 16ths (0 … bars×16), v = value in the param's own units, k: 'line' = straight to
    the next point (default: smooth). Volume / Reverb / Delay are % of the mix setting; Pan −100…100
    (moves the sound on top of its mix pan); Filter = low-pass cutoff in Hz; Pitch in semitones
@@ -201,11 +320,9 @@ function evalCurve(pts, s, param) {
 const NOTE_CURVES = ['vol', 'pan', 'cut', 'pitch'];   // a synth instrument's shape over each note (s = 0…100 % of the note)
 /* An instrument's repeating curve (role.curves, every role.curveBars bars): { pts, len } or null. */
 function roleCurve(r, k) { const pts = r && r.curves && r.curves[k]; return pts && pts.length ? { pts, len: (r.curveBars || 1) * 16 } : null; }
-/* The curve an instrument plays in a track for setting k: the track's own (an empty list = off there),
-   else the instrument's repeating one. { pts, len } (len 0 = over the track) or null. */
+/* The curve an instrument plays in a track for setting k: its own, repeating. { pts, len } or null. */
 function partCurve(song, x, k) {
   if (!x) return null;
-  if (x.curves && x.curves[k]) return x.curves[k].length ? { pts: x.curves[k], len: 0 } : null;
   const t = song.tracks.find((l) => l.id === x.t);
   return t ? roleCurve(roleOf(t), k) : null;
 }
@@ -244,7 +361,7 @@ function migrateLanesToParts(s, roles) {
   s.tracks.forEach((t) => LEGACY_LANE_KEYS.forEach((k) => delete t[k]));
   return true;
 }
-function makePattern(name, bars = 2, kind = 'loop') { return { id: uid(), name, bars, drums: {}, notes: {}, kind, entrySting: null, origins: {} }; }
+function makePattern(name, bars = 2, kind = 'loop') { return { id: uid(), name, bars, kind, entrySting: null, parts: [] }; }
 function makeScore(name, style = App.project.style) {
   return { id: uid(), name, bpm: style.bpm, swing: 0, key: style.key, scale: style.scale, tracks: [], patterns: [], arrangement: [], mix: null,
     layers: [{ id: 'base', name: 'Base' }], adaptive: { quant: 'bar' } };
@@ -259,74 +376,19 @@ function layerGainAt(song, t, intensity) {
 }
 
 function ensurePattern(pat, song = App.song) {
-  const steps = pat.bars * 16;
-  pat.origins = pat.origins || {};
-  song.tracks.forEach((t) => {
-    if (t.type === 'drum') {
-      pat.drums[t.id] = pat.drums[t.id] || {};
-      DRUM_VOICES.forEach((v) => {
-        const row = pat.drums[t.id][v.id] || [];
-        if (row.length < steps) for (let i = row.length; i < steps; i++) row.push(0);
-        pat.drums[t.id][v.id] = row;
-      });
-    } else pat.notes[t.id] = pat.notes[t.id] || [];
-  });
-  // A new track gets every instrument of the level; parts of removed lanes go.
-  if (!pat.parts && !song.tracks.some((t) => LEGACY_LANE_KEYS.some((k) => k in t))) pat.parts = song.tracks.map((t) => newPart(song, t, pat));
-  if (pat.parts) {
-    pat.parts = pat.parts.filter((x) => song.tracks.some((t) => t.id === x.t));
-    pat.parts.forEach((x) => normalizePart(song, x));
-  }
+  if (!pat.parts) pat.parts = [];
+  pat.parts = pat.parts.filter((x) => song.tracks.some((t) => t.id === x.t));
+  pat.parts.forEach((x) => { normalizePart(song, x); delete x.curves; });
 }
 function ensureAll(song = App.song) { song.patterns.forEach((p) => ensurePattern(p, song)); }
 
-/* An instrument added to a track that was duplicated from another one: copy the beats (or notes),
-   curves and layer of the instrument that plays the original (or the original's original): in this
-   track if it's there, else in another track of the level (repeated or cut to this track's length).
-   Returns { lane, pattern } (pattern is the other track, or null for this one), or null when none plays it. */
-function copyPartsFromOriginal(song, p, t) {
-  let fromId = (App.role(t.role) || {}).from, src = null, q = null;
-  const seen = new Set();
-  const others = [p, ...song.patterns.filter((o) => o !== p && o.kind === p.kind), ...song.patterns.filter((o) => o !== p && o.kind !== p.kind)];
-  while (fromId && !seen.has(fromId) && !src) {
-    seen.add(fromId);
-    for (const o of others) {
-      src = partLanes(song, o).find((x) => x.role === fromId && x !== t && x.type === t.type) || null;
-      if (src) { q = o; break; }
-    }
-    fromId = (App.role(fromId) || {}).from;
-  }
-  if (!src) return null;
-  const steps = p.bars * 16, srcSteps = q.bars * 16;
-  if (t.type === 'drum') {
-    const d = {};
-    Object.entries(q.drums[src.id] || {}).forEach(([v, row]) => { d[v] = Array.from({ length: steps }, (_, i) => row[i % srcSteps] || 0); });
-    p.drums[t.id] = d;
-  } else {
-    const ns = [];
-    for (let off = 0; off < steps; off += srcSteps) {
-      (q.notes[src.id] || []).forEach((n) => {
-        const s = n.s + off;
-        if (s < steps) ns.push({ ...clone(n), s, l: Math.min(n.l, steps - s) });
-      });
-    }
-    p.notes[t.id] = ns;
-  }
-  const x = partOf(p, t), y = partOf(q, src);
-  if (q === p) x.layer = y.layer;   // another track may have other layers
-  if (y.curves && Object.keys(y.curves).length) x.curves = clone(y.curves); else delete x.curves;   // its curves too
-  ensurePattern(p, song);
-  return { lane: src, pattern: q === p ? null : q };
+/* Put a preset beat into a drum instrument (over its length). */
+function applyBeat(role, beatName) {
+  const b = BEAT_LOOPS[beatName] || {}, m = musicOf(role), steps = m.bars * 16;
+  DRUM_VOICES.forEach((v) => (m.drums[v.id] = parseBeatString(b[v.id], steps)));
 }
 
-function applyBeat(pat, trackId, beatName) {
-  const b = BEAT_LOOPS[beatName] || {};
-  const steps = pat.bars * 16;
-  pat.drums[trackId] = {};
-  DRUM_VOICES.forEach((v) => (pat.drums[trackId][v.id] = parseBeatString(b[v.id], steps)));
-}
-
-/* Copy a score with fresh ids (tracks, patterns) so it stands on its own. */
+/* Copy a score with fresh ids (tracks, patterns) so it stands on its own. Its instruments are the same. */
 function duplicateScore(src, name) {
   const s = clone(src);
   s.id = uid(); s.name = name;
@@ -337,16 +399,151 @@ function duplicateScore(src, name) {
     p.id = pmap[p.id];
     if (p.entrySting) p.entrySting = pmap[p.entrySting] || null;
     if (p.then) p.then = pmap[p.then] || null;
-    const d = {}, n = {};
-    Object.keys(p.drums).forEach((k) => { if (map[k]) d[map[k]] = p.drums[k]; });
-    Object.keys(p.notes).forEach((k) => { if (map[k]) n[map[k]] = p.notes[k]; });
-    p.drums = d; p.notes = n;
-    const o = {};
-    Object.keys(p.origins || {}).forEach((k) => { if (map[k]) o[map[k]] = p.origins[k]; });
-    p.origins = o;
+    (p.parts || []).forEach((x) => { x.t = map[x.t] || x.t; });
   });
   Object.values(s.cues || {}).forEach((xs) => xs.forEach((a) => { if (a.target) a.target = pmap[a.target] || null; }));
   return s;
+}
+
+/* ---------- moving older projects to instruments that own their music (version 3) ----------
+   Before, each track (segment or sting) kept its own notes / beats / curves for each instrument, and
+   library segments kept theirs. Now the instrument owns them. Every distinct thing an instrument
+   played becomes an instrument: the first keeps it, others become copies named "Bass (Action)". A
+   track that plays an instrument's music only partly (shorter) or repeated (longer) still uses it.
+   Instruments that played nothing in a track leave that track (they were silent there). */
+function migrateMusic(P) {
+  const roles = P.style.roles, byId = (id) => roles.find((r) => r.id === id);
+  const short = (to, from) => { const d = (((to - from) % 12) + 12) % 12; return d > 6 ? d - 12 : d; };
+  // What a music plays over `steps` 16ths in a level of key `key` (for comparing).
+  const view = (r, mu, steps, key) => {
+    const L = mu.bars * 16;
+    if (r.type === 'drum') return JSON.stringify(DRUM_VOICES.map((v) => { const row = (mu.drums || {})[v.id] || []; return Array.from({ length: steps }, (_, i) => row[i % L] || 0); }));
+    const d = short(key, mu.key), out = [];
+    for (let off = 0; off < steps; off += L) (mu.notes || []).forEach((n) => { const s = n.s + off; if (n.s < L && s < steps) out.push([s, Math.min(n.l, steps - s), clamp(n.p + d, 0, 127), n.v]); });
+    return JSON.stringify(out.sort((a, b) => a[0] - b[0] || a[2] - b[2] || a[1] - b[1] || a[3] - b[3]));
+  };
+  const empty = (src) => (src.drums ? !Object.values(src.drums).some((row) => (row || []).some((v) => v > 0)) : !src.notes.length) && !hasCurves(src.curves);
+  const curveSig = (src) => (src.curves && Object.keys(src.curves).length ? JSON.stringify([src.bars, src.curves]) : 'instrument');
+
+  // 1. everything an instrument plays: in level tracks, and in library segments of the older kind
+  const srcs = [];
+  P.scores.forEach((s) => s.patterns.forEach((p) => (p.parts || []).forEach((x) => {
+    const t = s.tracks.find((l) => l.id === x.t), r = t && byId(t.role);
+    if (!r) return;
+    srcs.push({ r, s, p, x, t, bars: p.bars, key: s.key, label: p.name,
+      notes: r.type === 'drum' ? null : ((p.notes || {})[t.id] || []).filter((n) => n.s < p.bars * 16),
+      drums: r.type === 'drum' ? (p.drums || {})[t.id] || {} : null,
+      theme: (p.origins || {})[t.id] || null, curves: x.curves || null });
+  })));
+  P.library.forEach((it) => {
+    if (it.kind === 'melody' || !it.parts) return;
+    (it.order || Object.keys(it.parts)).forEach((k) => {
+      const part = it.parts[k], r = part && byId(k.split(':')[0]);
+      if (!r) return;
+      srcs.push({ r, item: it, k, bars: it.bars, key: typeof it.key === 'number' ? it.key : P.style.key, label: it.name,
+        notes: r.type === 'drum' ? null : (part.notes || []).filter((n) => n.s < it.bars * 16), drums: r.type === 'drum' ? part.drums || {} : null,
+        theme: (it.origins || {})[k] || null, curves: (part.mix && part.mix.curves) || null, mix: part.mix || null });
+    });
+  });
+
+  // 2. group by instrument: one group per distinct music (a shorter or repeated use fits a group)
+  const groups = new Map();   // role id → [{ mu, sig, members[], theme }]
+  const host = (src) => src.p || src.item;
+  srcs.forEach((src) => {
+    if (empty(src)) return;
+    const mine = { bars: src.bars, key: src.key, notes: src.notes, drums: src.drums };
+    const gs = groups.get(src.r.id) || [];
+    groups.set(src.r.id, gs);
+    const sig = curveSig(src), steps = src.bars * 16;
+    const ok = (g) => g.sig === sig && !g.members.some((m) => host(m) === host(src));
+    let g = gs.find((x) => ok(x) && view(src.r, x.mu, steps, src.key) === view(src.r, mine, steps, src.key));
+    if (!g) {   // a shorter music that every member of a group repeats: it becomes the group's music
+      g = gs.find((x) => ok(x) && src.bars < x.mu.bars && x.members.every((m) => view(src.r, mine, m.bars * 16, m.key) === view(src.r, x.mu, m.bars * 16, m.key)));
+      if (g) g.mu = mine;
+    }
+    if (!g) { g = { mu: mine, sig, members: [], theme: null }; gs.push(g); }
+    g.members.push(src);
+    if (!g.theme && src.theme) g.theme = src.theme;
+  });
+
+  // 3. groups become instruments; each source learns its instrument
+  const split = [], orig = {};
+  roles.forEach((r) => (orig[r.id] = clone(r)));
+  const curvesFor = (r0, g) => {
+    const m = g.members[0];
+    if (g.sig === 'instrument') return { curves: r0.curves ? clone(r0.curves) : null, bars: r0.curveBars };
+    const S = m.bars * 16, c = {};
+    PART_CURVES.forEach((k) => {
+      const own = m.curves[k];
+      if (own) { if (own.length) c[k] = clone(own); return; }
+      const rc = roleCurve(r0, k);
+      if (rc) c[k] = unrollCurve(rc.pts, rc.len, S, k);
+    });
+    return { curves: Object.keys(c).length ? c : null, bars: m.bars };
+  };
+  const musicFrom = (r, g) => {
+    const mu = g.mu;
+    const music = r.type === 'drum' ? { bars: mu.bars, drums: clone(mu.drums || {}) } : { bars: mu.bars, key: mu.key, notes: clone(mu.notes || []) };
+    if (g.theme && r.type !== 'drum') music.theme = { ...g.theme };
+    return music;
+  };
+  roles.slice().forEach((r) => {
+    const gs = groups.get(r.id) || [];
+    gs.forEach((g, i) => {
+      const r0 = orig[r.id];
+      let inst = r;
+      if (i > 0) {
+        inst = clone(r0);
+        inst.id = uid(); inst.from = r.id;
+        inst.name = uniqueRoleName(`${r0.name} (${g.members[0].label})`, P.style);
+        roles.push(inst);
+        split.push(inst.name);
+      }
+      inst.music = musicFrom(r, g);
+      const cv = curvesFor(r0, g);
+      if (cv.curves) { inst.curves = cv.curves; inst.curveBars = cv.bars || 1; } else { delete inst.curves; delete inst.curveBars; }
+      g.members.forEach((m) => (m.inst = inst));
+    });
+    if (!gs.length) { r.music = r.type === 'drum' ? { bars: 2, drums: {} } : { bars: 2, key: P.style.key, notes: [] }; }
+  });
+  // a silent use keeps an instrument that never plays anything (otherwise it leaves the track)
+  srcs.forEach((src) => { if (!src.inst && !groups.get(src.r.id)) src.inst = src.r; });
+
+  // 4. level tracks list their instruments by lane: one lane per instrument per level
+  P.scores.forEach((s) => {
+    const lane = {}, claimed = new Set();
+    srcs.filter((x) => x.s === s).forEach((src) => {
+      if (!src.inst) { src.p.parts = src.p.parts.filter((x) => x !== src.x); return; }
+      let t = lane[src.inst.id];
+      if (!t) {
+        if (!claimed.has(src.t.id)) { t = src.t; if (src.inst !== src.r) t.name = src.inst.name; }
+        else { t = makeTrack(src.inst); t.sound = src.t.sound ? clone(src.t.sound) : null; s.tracks.push(t); }
+        t.role = src.inst.id; claimed.add(t.id); lane[src.inst.id] = t;
+      }
+      src.x.t = t.id;
+      delete src.x.curves;
+    });
+    // a pattern can't list one lane twice (two parts that turned out to be the same instrument)
+    s.patterns.forEach((p) => { const seen = new Set(); p.parts = (p.parts || []).filter((x) => !seen.has(x.t) && seen.add(x.t)); delete p.notes; delete p.drums; delete p.origins; });
+    s.tracks.forEach((t) => delete t.part);
+  });
+  // 5. library segments list instruments and their mix
+  P.library.forEach((it) => {
+    if (it.kind === 'melody' || !it.parts) return;
+    const order = [], mix = {};
+    srcs.filter((x) => x.item === it && x.inst).forEach((src) => {
+      if (order.includes(src.inst.id)) return;
+      order.push(src.inst.id);
+      const m = src.mix ? clone(src.mix) : {};
+      delete m.curves;
+      mix[src.inst.id] = m;
+    });
+    it.order = order; it.mix = mix;
+    delete it.parts; delete it.origins; delete it.key; delete it.scale;
+  });
+  roles.forEach((r) => musicOf(r));
+  P.version = 3;
+  if (split.length) P._musicSplit = split;
 }
 
 /* ---------- demo / blank projects ---------- */
@@ -358,16 +555,26 @@ function baseStyle(key = 9, scale = 'minor', bpm = 96) {
 function blankProject() {
   const style = baseStyle(0, 'minor', 110);
   const score = makeScore('Level 1', style);
-  style.roles.forEach((r) => score.tracks.push(makeTrack(r)));
-  score.patterns.push(makePattern('Main', 2));
+  style.roles.forEach((r) => { r.music = r.type === 'drum' ? { bars: 2, drums: {} } : { bars: 2, key: style.key, notes: [] }; score.tracks.push(makeTrack(r)); });
+  const p = makePattern('Main', 2);
+  score.patterns.push(p);
   score.arrangement = [0];
-  ensureAll(score);
-  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [score], current: 0, library: [] };
+  return { app: 'SynthStudio', version: 3, name: 'My Game', style, scores: [score], current: 0, library: [], _blank: true };
 }
+/* The demo is written the older way (notes in each track) and moved to instruments by migrateMusic,
+   which names the instruments after the track they first play in. */
 function demoProject() {
   const style = baseStyle(9, 'minor', 96);
   const R = Object.fromEntries(style.roles.map((r) => [r.name, r]));
   const gen = (s, name, bars, prog) => LOOP_GENERATORS[name]({ root: s.key, scale: s.scale, bars, prog });
+  const pat = (song, name, bars, kind) => {
+    const p = { ...makePattern(name, bars, kind), drums: {}, notes: {}, origins: {} };
+    delete p.parts;   // every lane of the level, with its notes (moved to instruments on load)
+    song.tracks.forEach((t) => { if (t.type === 'drum') { p.drums[t.id] = {}; DRUM_VOICES.forEach((v) => (p.drums[t.id][v.id] = new Array(bars * 16).fill(0))); } else p.notes[t.id] = []; });
+    song.patterns.push(p);
+    return p;
+  };
+  const beat = (p, id, name) => { const b = BEAT_LOOPS[name] || {}; DRUM_VOICES.forEach((v) => (p.drums[id][v.id] = parseBeatString(b[v.id], p.bars * 16))); };
 
   // Level 1 — the game's home sound, straight from the Style.
   const L1 = makeScore('Level 1 — Meadow', style);
@@ -375,12 +582,11 @@ function demoProject() {
   const [d1, b1, k1, p1, l1] = ['Drums', 'Bass', 'Keys', 'Pad', 'Lead'].map((n) => makeTrack(R[n]));
   p1.vol = 0.5; l1.vol = 0.55;
   L1.tracks.push(d1, b1, k1, p1, l1);
-  const A = makePattern('Verse', 2), B = makePattern('Chorus', 2), C = makePattern('Intro', 2);
-  [A, B, C].forEach((p) => { L1.patterns.push(p); ensurePattern(p, L1); });
-  applyBeat(A, d1.id, 'Boom Bap');
-  applyBeat(B, d1.id, 'Half-Time');
+  const A = pat(L1, 'Verse', 2), B = pat(L1, 'Chorus', 2), C = pat(L1, 'Intro', 2);
+  beat(A, d1.id, 'Boom Bap');
+  beat(B, d1.id, 'Half-Time');
   B.drums[d1.id].crash[0] = 0.8;
-  applyBeat(C, d1.id, 'Clear');
+  beat(C, d1.id, 'Clear');
   C.drums[d1.id].chh = parseBeatString('x.x.x.x.x.x.x.x.', 32);
   A.notes[b1.id] = gen(L1, 'Bass: syncopated', 2, 'Prog 1–6–3–7');
   A.notes[k1.id] = gen(L1, 'Chords (7ths)', 2, 'Prog 1–6–3–7');
@@ -393,8 +599,7 @@ function demoProject() {
   // Adaptive setup: Base (harmony) → Rhythm (drums) → Intensity (lead), and a sting into Action.
   L1.layers = [{ id: 'base', name: 'Base' }, { id: 'rhythm', name: 'Rhythm' }, { id: 'intense', name: 'Intensity' }];
   d1.layer = 'rhythm'; l1.layer = 'intense';
-  const S1 = makePattern('Alert', 1, 'sting');
-  L1.patterns.push(S1); ensurePattern(S1, L1);
+  const S1 = pat(L1, 'Alert', 1, 'sting');
   S1.drums[d1.id].kick[0] = 1; S1.drums[d1.id].crash[0] = 1; S1.drums[d1.id].snare = parseBeatString('........x.x.xXXX', 16);
   S1.notes[p1.id] = chordTones({ root: L1.key, scale: L1.scale }, 5, false, 3).map((p) => ({ s: 0, l: 12, p, v: 0.8 }));
   S1.notes[l1.id] = [0, 2, 4, 7].map((d, i) => ({ s: 8 + i * 2, l: 2, p: scaleNote(L1.key, SCALES[L1.scale].steps, d + 7, 4), v: 0.8 }));
@@ -408,21 +613,19 @@ function demoProject() {
   p2.sound = soundFields(R.Pad); p2.sound.synth.cut = 700; p2.vol = 0.55; p2.rev = 0.5;
   l2.vol = 0.45; l2.dly = 0.35;
   L2.tracks.push(d2, b2, k2, p2, l2);
-  const E = makePattern('Explore', 4), D = makePattern('Danger', 2);
-  [E, D].forEach((p) => { L2.patterns.push(p); ensurePattern(p, L2); });
+  const E = pat(L2, 'Explore', 4), D = pat(L2, 'Danger', 2);
   E.drums[d2.id].chh = parseBeatString('x...x...x...x...', 64);
   E.drums[d2.id].rim = parseBeatString('......o.......o.', 64);
   E.notes[p2.id] = gen(L2, 'Chords (block)', 4, 'Prog 1–7–6–7');
   E.notes[k2.id] = gen(L2, 'Arp: broken', 4, 'Prog 1–7–6–7').filter((n, i) => i % 2 === 0);
-  applyBeat(D, d2.id, 'Half-Time');
+  beat(D, d2.id, 'Half-Time');
   D.notes[b2.id] = gen(L2, 'Bass: eighths', 2, 'Prog 1–6–3–7');
   D.notes[p2.id] = gen(L2, 'Chords (block)', 2, 'Prog 1–6–3–7');
   D.notes[l2.id] = gen(L2, 'Arp: up', 2, 'Prog 1–6–3–7');
   L2.arrangement = [0, 0, 1, 1, 0];
   L2.layers = [{ id: 'base', name: 'Base' }, { id: 'rhythm', name: 'Rhythm' }, { id: 'intense', name: 'Intensity' }];
   d2.layer = 'rhythm'; b2.layer = 'rhythm'; l2.layer = 'intense';
-  const S2 = makePattern('Discovered', 1, 'sting');
-  L2.patterns.push(S2); ensurePattern(S2, L2);
+  const S2 = pat(L2, 'Discovered', 1, 'sting');
   S2.drums[d2.id].crash[0] = 1; S2.drums[d2.id].ltom = parseBeatString('x...x...x.x.xxxx', 16);
   S2.notes[k2.id] = [0, 1, 2, 3, 4, 5, 6, 7].map((d, i) => ({ s: i * 2, l: 2, p: scaleNote(L2.key, SCALES[L2.scale].steps, 14 - d, 4), v: 0.7 }));
   S2.notes[b2.id] = [{ s: 0, l: 16, p: scaleNote(L2.key, SCALES[L2.scale].steps, 0, 1), v: 0.9 }];
@@ -432,9 +635,9 @@ function demoProject() {
   const main = { id: uid(), name: 'Main Theme', key: 9, scale: 'minor', bars: 2, role: R.Lead.id, notes: [
     [0, 4, 69], [4, 2, 72], [6, 2, 76], [8, 4, 74], [12, 2, 72], [14, 2, 71],
     [16, 6, 69], [22, 2, 64], [24, 4, 67], [28, 4, 69]].map(([s, l, p]) => ({ s, l, p, v: 0.8 })) };
-  const use = (song, pat, track, opts) => {
-    pat.notes[track.id] = Themes.render(main, { key: song.key, scale: song.scale, bars: pat.bars, ...opts });
-    pat.origins = { ...(pat.origins || {}), [track.id]: { theme: main.id, ...opts } };
+  const use = (song, p, track, opts) => {
+    p.notes[track.id] = Themes.render(main, { key: song.key, scale: song.scale, bars: p.bars, ...opts });
+    p.origins[track.id] = { theme: main.id, ...opts };
   };
   use(L1, A, l1, { oct: 0, speed: 1, fit: true });          // Meadow Explore: theme on the lead (Intensity layer)
   use(L2, D, l2, { oct: 0, speed: 1, fit: true });          // Ice Caves Danger: same theme, now in D minor
@@ -455,7 +658,7 @@ function demoProject() {
     [eP.id]: [act('duck', null, 0.3)], [eR.id]: [act('unduck')], [eO.id]: [act('end', S1)] };
   L2.cues = { [eW.id]: [act('goto', E), act('intensity', null, 0.2)], [eS.id]: [act('goto', D)], [eC.id]: [act('intensity', null, 1)],
     [eP.id]: [act('duck', null, 0.3)], [eR.id]: [act('unduck')], [eO.id]: [act('fade', null, 2)] };
-  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [L1, L2], current: 0, themes: [main], flavors: [ice], events };
+  return { app: 'SynthStudio', version: 2, name: 'My Game', style, scores: [L1, L2], current: 0, themes: [main], flavors: [ice], events, _demo: true };
 }
 
 /* Older saves were a single song with sounds on each track: wrap them in a project,
@@ -504,14 +707,15 @@ const App = {
     } catch (e) { console.warn(e); }
     this.project = p || demoProject();
     this.migrate(this.project);
+    Library.sync();
     this.resetSelection();
     this.migrationNote();
   },
-  /* Say once what the step-6b upgrade changed in a saved project (nothing in sound). */
+  /* Say once what moving to instruments-own-their-music changed in a saved project (nothing in sound). */
   migrationNote() {
-    const p = this.project, n = p._partsSplit;
-    delete p._partsSplit; delete p._partsMigrated;
-    if (n) setTimeout(() => toast(`Each track now lists its own instruments and mix. ${n} linked track${n > 1 ? 's' : ''} had a different mix in another level, so ${n > 1 ? 'those copies are' : 'that copy is'} now that level's own version (sounds the same; “Back to the library version” relinks).`, 9000), 800);
+    const p = this.project, split = p._musicSplit, demo = p._demo;
+    delete p._musicSplit; delete p._demo; delete p._blank;
+    if (split && !demo) setTimeout(() => toast(`Instruments now own their notes and beats: segments just list which instruments play. ${split.length} instrument${split.length > 1 ? 's' : ''} played different notes in different segments, so each version is now its own instrument (${split.slice(0, 4).join(', ')}${split.length > 4 ? '…' : ''}). Nothing sounds different.`, 12000), 800);
   },
   migrate(p) {
     p.style.mix = Object.assign({ ...DEFAULT_MIX }, p.style.mix || {});
@@ -526,8 +730,7 @@ const App = {
       s.mix = s.mix ? Object.assign({ ...DEFAULT_MIX }, s.mix) : null;
       s.patterns.forEach((p) => {
         p.kind = p.kind || 'loop'; if (p.entrySting === undefined) p.entrySting = null;
-        p.origins = p.origins || {};
-        Object.keys(p.origins).forEach((k) => { if (!p.origins[k] || !p.origins[k].theme) delete p.origins[k]; });
+        if (p.origins) Object.keys(p.origins).forEach((k) => { if (!p.origins[k] || !p.origins[k].theme) delete p.origins[k]; });
       });
       s.tracks.forEach((t) => { if (t.sound && t.sound.synth) t.sound.synth = Object.assign({}, SYNTH_PRESETS[t.sound.preset] || SYNTH_PRESETS.piano, t.sound.synth); });
     });
@@ -539,10 +742,6 @@ const App = {
       r.mix = defaultInstMix(r);
       if (t) INST_MIX_KEYS.forEach((k) => { if (typeof t[k] === 'number') r.mix[k] = t[k]; });
     });
-    // Step 6b: each track lists its instruments (parts) with their own mix; lanes keep none.
-    let migrated = 0;
-    p.scores.forEach((s) => { if (migrateLanesToParts(s, p.style.roles)) migrated++; ensureAll(s); });
-    if (migrated) p._partsMigrated = true;
     // Copies made before instruments remembered their original ("Drums 2" from "Drums"): link them by name.
     p.style.roles.forEach((r) => {
       if (r.from) return;
@@ -551,12 +750,24 @@ const App = {
       if (o) r.from = o.id;
     });
     Library.migrate(p);
-    // Curves shape instruments only (whole-track curves fold into each instrument; a sting's Speed stays).
-    p.library.forEach((it) => { if (it.order) foldTrackCurves(it, it.order.map((k) => it.parts[k] && it.parts[k].mix).filter(Boolean)); });
-    p.scores.forEach((s) => s.patterns.forEach((pt) => {
-      if (foldTrackCurves(pt, pt.parts || []) && pt.lib && pt.libSig && typeof pt.libSig === 'object') pt.libSig = Library.sig(Library.capture(pt, s));
-    }));
-    p.scores.forEach((s) => pruneLanes(s));
+    if (!(p.version >= 3)) {
+      const prev = this.project; this.project = p;   // (helpers read App.project)
+      try {
+        // Step 6b: each track lists its instruments (parts) with their own mix; lanes keep none.
+        p.scores.forEach((s) => {
+          migrateLanesToParts(s, p.style.roles);
+          s.patterns.forEach((pt) => { if (!pt.parts) pt.parts = s.tracks.map((t) => newPart(s, t, pt)); });
+        });
+        // Whole-track curves fold into each instrument's (a sting's Speed stays).
+        p.library.forEach((it) => { if (it.parts) foldTrackCurves(it, (it.order || Object.keys(it.parts)).map((k) => it.parts[k] && it.parts[k].mix).filter(Boolean)); });
+        p.scores.forEach((s) => s.patterns.forEach((pt) => foldTrackCurves(pt, pt.parts || [])));
+        // Instruments own their music (version 3).
+        migrateMusic(p);
+        p.scores.forEach((s) => s.patterns.forEach((pt) => { if (pt.lib) pt.libSig = 'pull'; }));
+      } finally { this.project = prev; }
+    }
+    p.style.roles.forEach((r) => musicOf(r));
+    p.scores.forEach((s) => { ensureAll(s); pruneLanes(s); });
     GameEvents.migrate(p);
   },
   resetSelection() {
@@ -738,11 +949,11 @@ const Live = {
       const pos = Seq.posAt(ctx.currentTime);
       if (!pos) return;
       const pat = App.song.patterns[pos.pat];
+      if (!partOf(pat, tg.track)) return;
       const steps = pat.bars * 16;
       const s = Math.round(pos.local) % steps;
       App.pushUndo();
-      ensurePattern(pat);
-      pat.drums[tg.track.id][voiceId][s] = Math.max(0.4, vel);
+      setDrumAt(tg.track, voiceId, s, Math.max(0.4, vel));
       App.changed();
       UI.renderBeat();
     }
@@ -763,9 +974,10 @@ const Live = {
     }
     start = start % steps;
     len = Math.max(0.25, Math.min(len, steps));
+    const t = App.track(r.track);
+    if (!t || !partOf(pat, t)) return;
     App.pushUndo();
-    ensurePattern(pat);
-    pat.notes[r.track].push({ s: start, l: len, p: midi, v: r.vel });
+    laneMusic(t).notes.push(storeNote(App.song, t, { s: start, l: len, p: midi, v: r.vel }));
     App.changed();
     Roll.draw();
   },

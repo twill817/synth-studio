@@ -530,12 +530,11 @@ function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1, over = f
     if (!n) continue;
     if (t.type === 'drum') {
       n.input.__id = t.id;
-      const grid = pat.drums[t.id];
       const s = snd(t);
-      if (!grid || !s) continue;
+      if (!s) continue;
       const st = time + (local % 2 === 1 ? swingOff : 0);
       for (const v of DRUM_VOICES) {
-        const vel = grid[v.id] && grid[v.id][local];
+        const vel = drumAt(t, v.id, local);
         if (vel > 0) {
           let vs = s.voices[v.id];
           const pc = partCurve(song, partOf(pat, t), 'pitch');
@@ -544,10 +543,10 @@ function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1, over = f
         }
       }
     } else {
-      const notes = pat.notes[t.id];
       const s = snd(t);
-      if (!notes || !s) continue;
-      for (const nt of notes) {
+      if (!s) continue;
+      for (const nt of playNotes(song, t, pat.bars * 16)) {
+        if (nt.s >= local + 1) break;
         if (Math.floor(nt.s + 1e-6) !== local) continue;
         const isOdd = Math.abs(nt.s - Math.round(nt.s)) < 1e-6 && Math.round(nt.s) % 2 === 1;
         const st = time + (nt.s - local) * stepDur + (isOdd ? swingOff : 0);

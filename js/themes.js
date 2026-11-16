@@ -2,9 +2,9 @@
 
    theme  = { id, name, kind:'melody', key, scale, bars, notes[{s,l,p,v}], role }   (a library melody)
             A recurring melody / progression / riff, stored in its own key.
-   origin = pattern.origins[trackId] = { theme, oct, speed, fit }
-            Remembers which theme (and how) a track's notes in a pattern came from,
-            so the theme can be re-applied after it changes, or updated from the pattern.
+   origin = role.music.theme = { theme, oct, speed, fit }
+            Remembers which theme (and how) an instrument's notes came from,
+            so the theme can be re-applied after it changes, or updated from the instrument.
    flavor = { id, name, sounds: { roleId: soundFields }, mix | null } (project.flavors)
             A reusable set of level customizations (e.g. "Ice": bell keys, dark pad, big reverb). */
 
@@ -42,19 +42,15 @@ const Themes = {
   },
 
   find(id) { return Library.melodies().find((t) => t.id === id); },
-  usage(id) {
-    let n = 0;
-    App.project.scores.forEach((s) => s.patterns.forEach((p) => Object.values(p.origins || {}).forEach((o) => { if (o.theme === id) n++; })));
-    return n;
-  },
+  /* How many instruments play this theme. */
+  usage(id) { return App.style.roles.filter((r) => r.music && r.music.theme && r.music.theme.theme === id).length; },
 
-  /* Insert into the current pattern/track. mode: 'replace' (and remember the origin) or 'add'. */
-  insert(theme, track, pat, opts, mode = 'replace') {
-    const song = App.song;
+  /* Insert into an instrument (lane `track`), over the open track's length, in this level's key.
+     mode: 'replace' (and remember the origin) or 'add'. */
+  insert(theme, track, pat, opts, mode = 'replace', song = App.song) {
     const notes = this.render(theme, { key: song.key, scale: song.scale, bars: pat.bars, ...opts });
-    pat.origins = pat.origins || {};
-    if (mode === 'replace') { pat.notes[track.id] = notes; pat.origins[track.id] = { theme: theme.id, ...opts }; }
-    else pat.notes[track.id].push(...notes);
+    const m = writeLaneNotes(song, track, notes, pat.bars, mode);
+    if (mode === 'replace') m.theme = { theme: theme.id, ...opts };
     return notes.length;
   },
 

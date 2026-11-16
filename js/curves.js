@@ -1,8 +1,8 @@
-/* Curves (step 6c): shapes drawn over time. Data: see CURVE_PARAMS in app.js.
-   - In a track: each instrument's curves over the track's length (a sting also has Speed). An
-     instrument's own repeating curve plays wherever the track has none of its own for that setting.
-   - On a library instrument: a curve that repeats every few bars in every track, and a shape over
-     each note (synths).
+/* Curves: shapes drawn over time. Data: see CURVE_PARAMS in app.js.
+   - An instrument's curves belong to it (like its notes): they repeat every few bars wherever it
+     plays. The panel under the Beat grid / Piano Roll edits them for the instrument picked there; a
+     sting also has Speed, for the whole sting.
+   - On a synth instrument's sound: a shape over each note.
    CurveCanvas is the editor; Curves is the panel under the Beat grid / Piano Roll; InstCurves is the
    section in the instrument panel. */
 
@@ -203,14 +203,13 @@ const Curves = {
         <span class="cv-body"><select id="cvTarget" aria-label="What the curve shapes"></select>
         <span class="cv-params" role="group" aria-label="Curve"></span>
         <span class="cv-scope"></span>
-        <span class="hint cv-help" title="Click to add a point · drag to move (hold Shift: up and down only) · double-click to delete · right-click: smooth / straight to the next point. A loop repeats its curves each time round. A dashed line is the instrument's own repeating curve: draw on it to change it for this track only.">ⓘ how</span></span>
+        <span class="hint cv-help" title="Click to add a point · drag to move (hold Shift: up and down only) · double-click to delete · right-click: smooth / straight to the next point. An instrument's curves are its own: they play wherever it plays, repeating every few bars.">ⓘ how</span></span>
       </div>`;
     this.el = el;
     this.ed = new CurveCanvas({
-      steps: () => { const p = App.pattern(); return p ? p.bars * 16 : 32; },
+      steps: () => this.len(),
       param: () => this.param,
       pts: (make) => this.pts(make),
-      ghost: () => this.instCurve(),
       color: () => (this.target === 'track' ? '#ffd43b' : ((App.track(this.target) || {}).color || '#4dabf7')),
       empty: () => this.emptyText(),
       editable: () => !!this.owner(),
@@ -230,51 +229,62 @@ const Curves = {
         this.render(); if (UI.view === 'roll') Roll.draw();
         return;
       }
-      if (act === 'clear' || act === 'revert' || act === 'off') {
+      if (act === 'clear') {
         const o = this.owner();
         if (!o) return;
         App.pushUndo();
-        if (act === 'off') { o.curves = o.curves || {}; o.curves[this.param] = []; toast(`No ${CURVE_PARAMS[this.param].name.toLowerCase()} curve on this instrument in this track`, 2500); }
-        else { if (o.curves) delete o.curves[this.param]; this.tidy(); if (act === 'revert') toast('Back to the instrument’s curve', 2000); }
+        if (o.curves) delete o.curves[this.param];
+        this.tidy();
         App.changed(); UI.renderTracks(); this.render();
         return;
       }
       if (b.dataset.param) { this.param = b.dataset.param; this.render(); }
     });
     $('#cvTarget', el).onchange = (e) => { this.target = e.target.value; this.fixParam(); this.render(); };   // (the sidebar selection stays)
+    el.addEventListener('change', (e) => {
+      if (e.target.dataset.cv !== 'bars') return;
+      const o = this.owner();
+      if (!o || this.target === 'track') return;
+      App.pushUndo();
+      const nb = +e.target.value;
+      // the shape stays where it was; points past the new end go
+      if (o.curves) Object.values(o.curves).forEach((pts) => { for (let i = pts.length - 1; i >= 0; i--) if (pts[i].s > nb * 16) pts.splice(i, 1); });
+      o.curveBars = nb; this.tidy();
+      App.changed(); this.render();
+    });
     window.addEventListener('resize', () => this.render());
   },
 
   /* ---------- data ---------- */
+  /* What the curves live on: the picked instrument (it owns them), or a sting (its Speed). */
   owner() {
     const p = App.pattern();
     if (!p) return null;
     if (this.target === 'track') return p.kind === 'sting' ? p : null;
-    return this.target ? partOf(p, this.target) : null;
+    const t = this.target && partOf(p, this.target) ? App.track(this.target) : null;
+    return t ? roleOf(t) : null;
   },
-  /* The instrument's repeating curve for the target's lane ({ pts, len }), or null. */
-  instCurve(k = this.param) {
-    if (this.target === 'track' || !this.target) return null;
-    const t = App.track(this.target);
-    return t ? roleCurve(roleOf(t), k) : null;
+  /* Length of the x axis: an instrument's curve length (its repeat), or the sting. */
+  len() {
+    const p = App.pattern(), o = this.owner();
+    if (!p) return 32;
+    if (this.target === 'track' || !o) return p.bars * 16;
+    return o.curves ? (o.curveBars || 1) * 16 : p.bars * 16;
   },
-  /* This track's own points (an empty list = "off here"); make: start them, from the instrument's curve if it has one. */
   pts(make) {
     const o = this.owner();
     if (!o) return null;
     const own = o.curves && o.curves[this.param];
     if (own || !make) return own || null;
-    const ic = this.instCurve(), p = App.pattern();
-    o.curves = o.curves || {};
-    o.curves[this.param] = ic ? unrollCurve(ic.pts, ic.len, p.bars * 16, this.param) : [];
-    if (ic) toast('This instrument now has its own curve in this track (Back to the instrument’s curve undoes it)', 3500);
+    if (!o.curves) { o.curves = {}; if (this.target !== 'track') o.curveBars = App.pattern().bars; }   // a first curve spans this track
+    o.curves[this.param] = [];
     return o.curves[this.param];
   },
   tidy() {
     const o = this.owner();
     if (!o || !o.curves) return;
-    Object.keys(o.curves).forEach((k) => { if (o.curves[k] && !o.curves[k].length && !this.instCurve(k)) delete o.curves[k]; });
-    if (!Object.keys(o.curves).length) delete o.curves;
+    Object.keys(o.curves).forEach((k) => { if (!o.curves[k] || !o.curves[k].length) delete o.curves[k]; });
+    if (!Object.keys(o.curves).length) { delete o.curves; if (this.target !== 'track') delete o.curveBars; }
   },
   params() { return this.target === 'track' ? TRACK_CURVES : PART_CURVES; },
   fixParam() { if (!this.params().includes(this.param)) this.param = this.params()[0]; },
@@ -287,10 +297,8 @@ const Curves = {
   },
   emptyText() {
     if (!this.target) return 'Add an instrument to this track to give it curves';
-    const P = CURVE_PARAMS[this.param], own = this.pts(false), ic = this.instCurve();
+    const P = CURVE_PARAMS[this.param], own = this.pts(false);
     const what = this.target === 'track' ? 'the whole sting' : (App.track(this.target) || {}).name || 'this instrument';
-    if (own && !own.length && ic) return `${P.name}: off in this track (the instrument has a repeating curve)`;
-    if (!own && ic) return `The instrument’s ${P.name.toLowerCase()} curve, every ${ic.len / 16} bar${ic.len > 16 ? 's' : ''} — click to change it for this track`;
     if (!own || !own.length) return `No ${P.name.toLowerCase()} curve on ${what} — click to add a point`;
     return '';
   },
@@ -309,32 +317,33 @@ const Curves = {
     this.fixParam();
     const lanes = partLanes(App.song, p);
     const count = (o) => (o && o.curves ? Object.values(o.curves).filter((x) => x && x.length).length : 0);
-    const total = count(p) + lanes.reduce((a, t) => a + count(partOf(p, t)), 0);
+    const total = count(p) + lanes.reduce((a, t) => a + count(roleOf(t)), 0);
     $('.cv-fold', this.el).textContent = `${this.folded ? '▸' : '▾'} Curves${total ? ` (${total})` : ''}`;
     $('.cv-body', this.el).hidden = this.folded;
     this.cv.hidden = this.folded;
     if (this.folded) return;
-    const inherits = (t) => PART_CURVES.some((k) => roleCurve(roleOf(t), k));
-    $('#cvTarget', this.el).innerHTML = lanes.map((t) => `<option value="${t.id}">${esc(t.name)}${count(partOf(p, t)) ? ' ●' : inherits(t) ? ' ○' : ''}</option>`).join('') +
+    $('#cvTarget', this.el).innerHTML = lanes.map((t) => `<option value="${t.id}">${esc(t.name)}${count(roleOf(t)) ? ' ●' : ''}</option>`).join('') +
       (p.kind === 'sting' ? `<option value="track">Whole sting (Speed)${count(p) ? ' ●' : ''}</option>` : '');
     $('#cvTarget', this.el).hidden = !this.target;
     if (this.target) $('#cvTarget', this.el).value = this.target;
     const o = this.owner(), cs = (o && o.curves) || {};
-    const mark = (k) => (cs[k] ? (cs[k].length ? ' ●' : ' ⦸') : this.instCurve(k) ? ' ○' : '');
-    $('.cv-params', this.el).innerHTML = this.params().map((k) => `<button class="chip-btn ${k === this.param ? 'on' : ''}" data-param="${k}" title="${k === 'speed' ? 'Tempo of this sting (the game plays it exactly so)' : k === 'pitch' ? 'Bend the pitch, in semitones' : k === 'cut' ? 'Low-pass filter cutoff' : k === 'pan' ? 'Move the sound left or right' : '% of the mix setting'}${this.instCurve(k) ? ' · ○ the instrument has a repeating curve' : ''}">${CURVE_PARAMS[k].name}${mark(k)}</button>`).join('');
-    // what the buttons can do depends on whether the instrument has a repeating curve for this setting
-    const own = cs[this.param], ic = this.instCurve();
+    const mark = (k) => (cs[k] && cs[k].length ? ' ●' : '');
+    $('.cv-params', this.el).innerHTML = this.params().map((k) => `<button class="chip-btn ${k === this.param ? 'on' : ''}" data-param="${k}" title="${k === 'speed' ? 'Tempo of this sting (the game plays it exactly so)' : k === 'pitch' ? 'Bend the pitch, in semitones' : k === 'cut' ? 'Low-pass filter cutoff' : k === 'pan' ? 'Move the sound left or right' : '% of the mix setting'}">${CURVE_PARAMS[k].name}${mark(k)}</button>`).join('');
+    const own = cs[this.param];
     let sc = '';
-    if (ic) {
-      if (own) sc = `<span class="scope level">This track’s own</span><button data-cv="revert" title="Use the instrument's repeating curve again">Back to the instrument’s curve</button>${own.length ? '<button data-cv="off" title="No curve for this setting in this track">Off in this track</button>' : ''}`;
-      else sc = `<span class="scope style">From the instrument</span><button data-cv="off" title="No curve for this setting in this track">Off in this track</button>`;
-    } else if (own && own.length) sc = '<button data-cv="clear" class="danger" title="Remove every point of this curve">Clear curve</button>';
+    if (this.target !== 'track' && o) {
+      const bars = o.curves ? o.curveBars || 1 : p.bars, opts = [...new Set([1, 2, 4, 8, bars])].sort((a, b) => a - b);
+      const also = usesText(o, p);
+      sc += `<label title="How long the instrument's curves are before they repeat">every <select data-cv="bars" ${o.curves ? '' : 'disabled'}>${opts.map((b) => `<option value="${b}" ${b === bars ? 'selected' : ''}>${b} bar${b > 1 ? 's' : ''}</option>`).join('')}</select></label>`;
+      if (also) sc += `<span class="scope style" title="An instrument's curves are its own, like its notes">Also in ${esc(also)}</span>`;
+    }
+    if (own && own.length) sc += '<button data-cv="clear" class="danger" title="Remove every point of this curve">Clear curve</button>';
     $('.cv-scope', this.el).innerHTML = sc;
     this.draw();
   },
   draw(pos) {
     if (!this.el || this.folded || this.el.hidden || !this.el.isConnected || !App.pattern()) return;
-    this.ed.draw(pos && pos.pat === App.sel.pattern ? pos.local : null);
+    this.ed.draw(pos && pos.pat === App.sel.pattern ? pos.local % this.len() : null);
   },
 };
 
@@ -398,8 +407,8 @@ const InstCurves = {
     const c = this.store(false) || {}, rc = tg.role.curves || {}, sc = (tg.sound.synth && tg.sound.synth.shape) || {};
     const n = (o) => Object.values(o).filter((x) => x && x.length).length;
     const label = { repeat: `Repeating${n(rc) ? ' ●' : ''}`, note: `Each note${n(sc) ? ' ●' : ''}` };
-    const tip = { repeat: 'A curve that repeats every few bars in every track that plays this instrument (a track can change it or turn it off)', note: 'A shape over each note, stretched to the note’s length' };
-    const say = this.mode === 'note' ? 'a shape over every note it plays, stretched to the note’s length' : 'repeats in every track that plays it, unless a track has its own';
+    const tip = { repeat: 'The instrument’s curves: they repeat every few bars in every track that plays it', note: 'A shape over each note, stretched to the note’s length' };
+    const say = this.mode === 'note' ? 'a shape over every note it plays, stretched to the note’s length' : 'its own curves: they repeat wherever it plays';
     return `<div class="section inst-curves-head">Curves <span class="muted">— ${say}</span></div>
       <div class="inst-curves curves-head">
         ${modes.length > 1 ? `<span class="cv-params">${modes.map((m) => `<button class="chip-btn ${m === this.mode ? 'on' : ''}" data-ic="mode" data-v="${m}" title="${tip[m]}">${label[m]}</button>`).join('')}</span><span class="cv-sep"></span>` : `<b title="${tip[modes[0]]}">${label[modes[0]]}</b>`}

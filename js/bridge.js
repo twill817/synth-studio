@@ -162,19 +162,23 @@ const BridgeAPI = {
       openScore: App.song.name,
       gameStyle: {
         defaultsForNewScores: { key: `${NOTE_NAMES[st.key]} ${SCALES[st.scale].name}`, bpm: st.bpm },
+        aboutInstruments: 'Each instrument (role) owns its notes or beat and its curves. Patterns only list which instruments play, each with its own mix; editing an instrument\'s notes changes them everywhere it plays. For a different part, duplicate the instrument (manage_role) and use the copy. An instrument\'s part repeats in a longer pattern and is cut in a shorter one; in a level in another key its notes move into that key.',
         roles: st.roles.map((r) => {
           const u = App.roleUsage(r.id);
-          return { name: r.name, type: r.type, sound: soundName(r), usedBy: `${u.tracks} track(s) in ${u.scores} score(s)`, customizedIn: u.tracks - u.shared,
-            ...(hasCurves(r.curves) ? { repeatingCurves: `${Object.keys(r.curves).map((k) => CURVE_PARAMS[k].name).join(', ')}, every ${r.curveBars || 1} bar(s)` } : {}),
+          const th = r.music && r.music.theme && Themes.find(r.music.theme.theme);
+          return { name: r.name, type: r.type, sound: soundName(r), music: musicSummary(r), ...(r.type !== 'drum' ? { writtenIn: NOTE_NAMES[musicOf(r).key] } : {}), ...(th ? { theme: th.name } : {}),
+            playsIn: musicUses(r).map((x) => `${x.song.name} › ${x.pattern.name}`), customizedIn: u.tracks - u.shared,
+            ...(r.from && App.role(r.from) ? { duplicatedFrom: App.role(r.from).name } : {}),
+            ...(hasCurves(r.curves) ? { curves: `${Object.keys(r.curves).map((k) => CURVE_PARAMS[k].name).join(', ')}, every ${r.curveBars || 1} bar(s)` } : {}),
             ...(r.synth && hasCurves(r.synth.shape) ? { noteShape: Object.keys(r.synth.shape).map((k) => CURVE_PARAMS[k].name).join(', ') } : {}) };
         }),
         masterMix: st.mix,
       },
       library: {
-        about: 'Every segment, sting and melody in the game. Levels place patterns linked (editing one changes it in every level that links it) or keep their own version. Melodies are the game’s themes (insert_theme).',
+        about: 'Every segment, sting and melody in the game. A segment or sting is a set of instruments (each with its mix); levels place them linked (changing which instruments play, or their mix, changes every level that links it) or keep their own version. Melodies are the game’s themes (insert_theme).',
         items: p.library.map((x) => x.kind === 'melody'
-          ? { name: x.name, type: 'melody (theme)', key: `${NOTE_NAMES[x.key]} ${SCALES[x.scale].name}`, bars: x.bars, notes: x.notes.length, uses: Themes.usage(x.id) }
-          : { name: x.name, type: x.kind, bars: x.bars, writtenIn: `${NOTE_NAMES[x.key]} ${SCALES[x.scale].name}`,
+          ? { name: x.name, type: 'melody (theme)', key: `${NOTE_NAMES[x.key]} ${SCALES[x.scale].name}`, bars: x.bars, notes: x.notes.length, instrumentsUsingIt: Themes.usage(x.id) }
+          : { name: x.name, type: x.kind, bars: x.bars, instruments: Library.orderOf(x).map((id) => App.role(id).name),
               usedIn: Library.uses(x).map((u) => `${u.song.name} › ${u.pattern.name}${u.linked ? '' : ' (own version)'}`) }),
       },
       flavors: p.flavors.map((f) => ({ name: f.name, changes: Flavors.summary(f) })),
@@ -194,7 +198,6 @@ const BridgeAPI = {
 
   getScore({ score }) {
     const s = Ref.score(score);
-    const tname = (id) => (s.tracks.find((t) => t.id === id) || {}).name;
     return {
       name: s.name, key: MusicText.key(s), bpm: s.bpm, swing: s.swing,
       mix: s.mix ? 'custom for this level' : 'game style',
@@ -205,14 +208,12 @@ const BridgeAPI = {
       intensityLayers: s.layers.map((l, i) => ({ name: l.name, level: i === 0 ? 'always on' : i })),
       patterns: s.patterns.map((p, i) => ({
         letter: String.fromCharCode(65 + i), name: p.name, type: p.kind === 'sting' ? 'sting (plays once)' : 'segment (loops)', bars: p.bars,
-        instruments: partLanes(s, p).map((t) => { const x = partOf(p, t); return { name: t.name, layer: (s.layers.find((l) => l.id === x.layer) || {}).name, volume: +x.vol.toFixed(2), pan: +x.pan.toFixed(2), ...(x.mute ? { muted: true } : {}), ...(x.solo ? { solo: true } : {}), ...(hasCurves(x.curves) ? { curves: Object.keys(x.curves).filter((k) => x.curves[k].length).map((k) => CURVE_PARAMS[k].name) } : {}), ...((() => { const off = Object.keys(x.curves || {}).filter((k) => !x.curves[k].length).map((k) => CURVE_PARAMS[k].name), inh = PART_CURVES.filter((k) => !(x.curves && x.curves[k]) && roleCurve(roleOf(t), k)).map((k) => CURVE_PARAMS[k].name); return { ...(inh.length ? { instrumentCurves: inh } : {}), ...(off.length ? { instrumentCurvesOff: off } : {}) }; })()) }; }),
+        instruments: partLanes(s, p).map((t) => { const x = partOf(p, t), r = roleOf(t), th = r.music && r.music.theme && Themes.find(r.music.theme.theme); return { name: t.name, plays: musicSummary(r), layer: (s.layers.find((l) => l.id === x.layer) || {}).name, volume: +x.vol.toFixed(2), pan: +x.pan.toFixed(2), ...(x.mute ? { muted: true } : {}), ...(x.solo ? { solo: true } : {}), ...(hasCurves(r.curves) ? { curves: Object.keys(r.curves).map((k) => CURVE_PARAMS[k].name) } : {}), ...(th ? { theme: th.name } : {}) }; }),
         ...(hasCurves(p.curves) ? { curves: Object.keys(p.curves).map((k) => CURVE_PARAMS[k].name) } : {}),
         library: p.lib ? `linked to “${(Library.of(p) || {}).name}”${Library.alsoIn(p, s).length ? ` — also plays in ${Library.alsoIn(p, s).join(', ')}, so edits change it there too` : ''}`
           : p.from && Library.find(p.from) ? `this level's own version of “${Library.find(p.from).name}”` : 'this level’s own pattern (not linked)',
         entrySting: p.entrySting ? (s.patterns.find((q) => q.id === p.entrySting) || {}).name || null : null,
-        notesPerTrack: Object.fromEntries(s.tracks.filter((t) => t.type === 'synth' && (p.notes[t.id] || []).length).map((t) => [t.name, p.notes[t.id].length])),
-        drumHits: Object.fromEntries(s.tracks.filter((t) => t.type === 'drum').map((t) => [t.name, Object.values(p.drums[t.id] || {}).reduce((a, r) => a + r.filter((v) => v > 0).length, 0)])),
-        linkedThemes: Object.fromEntries(Object.entries(p.origins || {}).map(([tid, o]) => [tname(tid), ((Themes.find(o.theme) || {}).name || '?') + (o.speed !== 1 ? ` (${o.speed === 2 ? 'half' : 'double'} speed)` : '') + (o.oct ? ` (${o.oct > 0 ? '+' : ''}${o.oct} oct)` : '')])),
+
       })),
       playthrough: s.arrangement.map((i) => (s.patterns[i] || {}).name).filter(Boolean),
       gameEvents: Object.fromEntries(GameEvents.list().map((e) => [e.name, GameEvents.summary(s, e) + (GameEvents.isCustom(s, e) ? ' (this level\'s own setting)' : ' (game style)')])),
@@ -226,16 +227,19 @@ const BridgeAPI = {
     const s = Ref.score(score);
     const p = Ref.pattern(s, pattern);
     const only = track ? Ref.track(s, track) : null;
-    const tracks = (only ? [only] : s.tracks).map((t) => {
+    if (only && !partOf(p, only)) throw new Error(`“${only.name}” doesn't play in “${p.name}”.`);
+    // Each instrument's own part (one pass), as heard in this level's key; it repeats to fill the pattern.
+    const tracks = (only ? [only] : partLanes(s, p)).map((t) => {
+      const r = roleOf(t), m = musicOf(r), L = m.bars * 16;
+      const len = { partBars: m.bars, ...(m.bars !== p.bars ? { fitsPattern: m.bars < p.bars ? `repeats ${p.bars / m.bars}× in this pattern` : `only its first ${p.bars} bar(s) play here` } : {}) };
+      const also = usesText(r, p);
       if (t.type === 'drum') {
-        const g = p.drums[t.id] || {};
         const lines = {};
-        DRUM_VOICES.forEach((v) => { if ((g[v.id] || []).some((x) => x > 0)) lines[v.name] = MusicText.drumRow(g[v.id], p.bars); });
-        return { track: t.name, type: 'drums', drums: lines };
+        DRUM_VOICES.forEach((v) => { if (m.drums[v.id].some((x) => x > 0)) lines[v.name] = MusicText.drumRow(m.drums[v.id], m.bars); });
+        return { track: t.name, type: 'drums', ...len, ...(also ? { alsoPlaysIn: also } : {}), drums: lines };
       }
-      const notes = (p.notes[t.id] || []).filter((n) => n.s < p.bars * 16).slice().sort((a, b) => a.s - b.s || a.p - b.p);
-      const o = p.origins && p.origins[t.id];
-      return { track: t.name, type: 'notes', linkedTheme: o ? (Themes.find(o.theme) || {}).name || null : null, notes: notes.map((n) => MusicText.note(n)) };
+      const o = m.theme;
+      return { track: t.name, type: 'notes', ...len, ...(also ? { alsoPlaysIn: also } : {}), linkedTheme: o ? (Themes.find(o.theme) || {}).name || null : null, notes: playNotes(s, t, L).map((n) => MusicText.note(n)) };
     });
     return { score: s.name, pattern: p.name, type: p.kind === 'sting' ? 'sting' : 'segment', bars: p.bars, key: MusicText.key(s), bpm: s.bpm, tracks };
   },

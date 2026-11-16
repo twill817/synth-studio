@@ -134,6 +134,10 @@ main { display: grid; grid-template-columns: 230px 1fr; min-height: 0; }
 .step.v2 { opacity: .7; }
 .step.v1 { opacity: .42; }
 .step.now { outline: 2px solid #fff; outline-offset: -2px; }
+/* the instrument's beat repeating in a longer track (every repeat is live) */
+.step.rep:not(.on) { filter: brightness(.82); }
+.step.rep-start::before { content: ''; position: absolute; left: -3px; top: -2px; bottom: -2px; width: 2px; background: #ffd43b88; border-radius: 1px; }
+.part-len[hidden] { display: none; }
 .beat-ruler { display: flex; gap: 8px; margin-bottom: 6px; }
 .beat-ruler .steps .step { height: 14px; background: transparent; font-size: 9px; color: var(--muted); text-align: center; cursor: default; }
 

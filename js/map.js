@@ -93,8 +93,7 @@ Object.assign(UI, {
       const lastSeg = s.patterns.map((q, k) => q.kind !== 'sting' && k !== i).lastIndexOf(true);
       this.selectPattern(i);
       if (p.kind !== 'sting' && lastSeg + 1 < i) this.movePattern(i, lastSeg + 1);
-      const d = Library.offset(App.song, it);
-      toast(`Placed “${it.name}” — linked, so edits change it everywhere it's used${d ? ` (shifted ${d > 0 ? '+' : ''}${d} to ${NOTE_NAMES[App.song.key]})` : ''}`, 3500);
+      toast(`Placed “${it.name}” — linked: its instruments play their own notes here (in ${NOTE_NAMES[App.song.key]}), and changing which instruments play changes it everywhere it's used`, 4000);
     };
     $('#mapQuant').onchange = (e) => { App.pushUndo(); App.song.adaptive.quant = e.target.value; App.changed(); this.renderSim(); };
 

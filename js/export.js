@@ -129,19 +129,19 @@ function exportMIDI(source, repeats) {
     let offset = 0;
     for (const pi of blocks) {
       const pat = song.patterns[pi];
+      if (!partOf(pat, t)) { offset += pat.bars * 16 * TPS; continue; }   // (not playing in this track)
       if (t.type === 'drum') {
-        const grid = pat.drums[t.id] || {};
         for (const v of DRUM_VOICES) {
-          const row = grid[v.id] || [];
-          row.forEach((vel, s) => {
-            if (!(vel > 0) || s >= pat.bars * 16) return;
+          for (let s = 0; s < pat.bars * 16; s++) {
+            const vel = drumAt(t, v.id, s);
+            if (!(vel > 0)) continue;
             const tk = offset + s * TPS, vv = clamp(Math.round(vel * 127), 1, 127);
             events.push({ tick: tk, order: 2, data: [0x90 | 9, v.gm, vv] });
             events.push({ tick: tk + TPS / 2, order: 1, data: [0x80 | 9, v.gm, 0] });
-          });
+          }
         }
       } else {
-        for (const n of pat.notes[t.id] || []) {
+        for (const n of playNotes(song, t, pat.bars * 16)) {
           const p = clamp(n.p + 12 * (snd(t).synth.oct || 0), 0, 127);
           const tk = Math.round(offset + n.s * TPS), len = Math.max(1, Math.round(n.l * TPS));
           events.push({ tick: tk, order: 2, data: [0x90 | channel, p, clamp(Math.round(n.v * 127), 1, 127)] });

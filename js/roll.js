@@ -31,7 +31,8 @@ const Roll = {
     $('#btnLoopInsert').onclick = () => this.insertLoop();
     $('#btnRollClear').onclick = () => {
       const t = this.track(); if (!t) return;
-      App.pushUndo(); App.pattern().notes[t.id] = []; delete App.pattern().origins[t.id]; this.sel.clear(); this.draw(); App.changed();
+      App.pushUndo(); const m = laneMusic(t); m.notes = []; delete m.theme; this.sel.clear(); this.draw(); App.changed();
+      this.toastShared(t, 'Cleared');
     };
     this.initThemes();
     $('#btnTransUp').onclick = () => this.transpose(1);
@@ -57,15 +58,16 @@ const Roll = {
 
   /* ---------- themes ---------- */
   themeOpts() { return { oct: +$('#themeOct').value, speed: +$('#themeSpeed').value, fit: $('#themeFit').checked }; },
-  origin() { const t = this.track(); const o = t && App.pattern().origins[t.id]; return o && Themes.find(o.theme) ? o : null; },
+  origin() { const t = this.track(); const o = t && laneMusic(t).theme; return o && Themes.find(o.theme) ? o : null; },
   initThemes() {
     const go = (mode) => {
       const t = this.track(), th = Themes.find($('#themeSel').value);
       if (!t || !th) return;
       App.pushUndo();
       const n = Themes.insert(th, t, App.pattern(), this.themeOpts(), mode);
-      this.sel.clear(); this.scrollToNotes(); App.changed(); UI.renderStyle();
-      toast(`${mode === 'add' ? 'Added' : 'Inserted'} “${th.name}” (${n} notes)${this.themeOpts().fit ? ` in ${NOTE_NAMES[App.song.key]} ${SCALES[App.song.scale].name}` : ''}`);
+      this.sel.clear(); this.scrollToNotes(); App.changed(); UI.renderStyle(); UI.renderRollBar();
+      const also = usesText(roleOf(t), App.pattern());
+      toast(`${mode === 'add' ? 'Added' : 'Inserted'} “${th.name}” (${n} notes)${this.themeOpts().fit ? ` in ${NOTE_NAMES[App.song.key]} ${SCALES[App.song.scale].name}` : ''}${also ? ` — ${t.name} also plays it in ${also}` : ''}`, also ? 4000 : 2500);
     };
     $('#btnThemeInsert').onclick = () => go('replace');
     $('#btnThemeAdd').onclick = () => go('add');
@@ -73,10 +75,10 @@ const Roll = {
     $('#btnThemeSave').onclick = () => {
       const t = this.track(), ns = this.notes();
       if (!t || !ns || !ns.length) return;
-      const src = this.sel.size ? [...this.sel] : ns;
+      const src = this.firstPass().filter((e) => !this.sel.size || this.sel.has(e.n));
       App.pushUndo();
-      const th = Themes.capture(`${App.pattern().name} ${t.name}`, src, t);
-      if (!this.sel.size) App.pattern().origins[t.id] = { theme: th.id, oct: 0, speed: 1, fit: true };
+      const th = Themes.capture(t.name, src, t);
+      if (!this.sel.size) laneMusic(t).theme = { theme: th.id, oct: 0, speed: 1, fit: true };
       this.renderThemeBar(); $('#themeSel').value = th.id; UI.renderStyle(); App.changed();
       toast(`Saved melody “${th.name}” — rename or hear it in the Library tab`, 3500);
     };
@@ -93,10 +95,10 @@ const Roll = {
       if (!o) return;
       const th = Themes.find(o.theme);
       App.pushUndo();
-      Themes.updateFrom(th, this.notes(), o);
+      Themes.updateFrom(th, this.firstPass(), o);
       const uses = Themes.usage(th.id) - 1;
       UI.renderStyle(); this.renderThemeBar(); App.changed();
-      undoToast(`Updated “${th.name}”` + (uses > 0 ? ` — ${uses} other use${uses > 1 ? 's' : ''} keep their notes until you Re-apply there` : ''));
+      undoToast(`Updated “${th.name}”` + (uses > 0 ? ` — ${uses} other instrument${uses > 1 ? 's' : ''} keep their notes until you Re-apply there` : ''));
     };
   },
   /* Show only the theme controls that apply right now. */
@@ -152,7 +154,7 @@ const Roll = {
     if (!cur || cur.id !== id) UI.selectTrack(id, { keepScroll: true });
   },
   openDrums(e) {
-    const drums = App.song.tracks.filter((t) => t.type === 'drum');
+    const drums = partLanes(App.song, App.pattern()).filter((t) => t.type === 'drum');
     if (!drums.length) return;
     const r = e.target.getBoundingClientRect();
     const t = drums[clamp(Math.floor((e.clientY - r.top) / this.drumRowH), 0, drums.length - 1)];
@@ -160,8 +162,22 @@ const Roll = {
   },
   drumRowH: 9,
 
-  track() { const t = App.track(); return t && t.type === 'synth' ? t : null; },
-  notes() { const t = this.track(); if (!t) return null; const p = App.pattern(); ensurePattern(p); return p.notes[t.id]; },
+  track() { const t = App.track(); return t && t.type === 'synth' && partOf(App.pattern(), t) ? t : null; },
+  /* The instrument's own notes (stored in its key), or null. Drawing and clicks use entries(). */
+  notes() { const t = this.track(); return t ? laneMusic(t).notes : null; },
+  /* What the open track plays of it, in the level's key, repeated over the track: see playNotes. */
+  entries() { const t = this.track(); return t ? playNotes(App.song, t, App.pattern().bars * 16) : []; },
+  /* One pass of the instrument (no repeats), in the level's key: for saving or updating a melody. */
+  firstPass() { const t = this.track(); return t ? playNotes(App.song, t, musicSteps(roleOf(t))) : []; },
+  shift() { const t = this.track(); return t ? keyShift(App.song, roleOf(t)) : 0; },
+  len() { const t = this.track(); return t ? musicSteps(roleOf(t)) : 16; },
+  /* Store a shown position / pitch (level's key, this track) into one of the instrument's notes. */
+  place(n, s, p) { const L = this.len(); n.s = ((s % L) + L) % L; n.p = clamp(p - this.shift(), 0, 127); },
+  /* After an edit, say where else the instrument plays. */
+  toastShared(t, what) {
+    const also = usesText(roleOf(t), App.pattern());
+    if (also) toast(`${what} — ${t.name} plays the same notes in ${also}`, 3000);
+  },
 
   audition(p) {
     const t = this.track(); if (!t) return;
@@ -175,12 +191,12 @@ const Roll = {
     return { x, y, step: x / this.cellW, p: this.hi - Math.floor(y / this.rowH) };
   },
   hit(c) {
-    const ns = this.notes(); if (!ns) return null;
-    for (let i = ns.length - 1; i >= 0; i--) {
-      const n = ns[i];
-      if (n.p === c.p && c.step >= n.s && c.step <= n.s + n.l) {
-        const right = (n.s + n.l) * this.cellW;
-        return { n, edge: right - c.x < Math.min(7, (n.l * this.cellW) / 3) };
+    const es = this.entries();
+    for (let i = es.length - 1; i >= 0; i--) {
+      const e = es[i];
+      if (e.p === c.p && c.step >= e.s && c.step <= e.s + e.l) {
+        const right = (e.s + e.l) * this.cellW;
+        return { n: e.n, e, edge: right - c.x < Math.min(7, (e.l * this.cellW) / 3) };
       }
     }
     return null;
@@ -206,17 +222,21 @@ const Roll = {
         const copies = [...this.sel].map((n) => ({ ...n }));
         ns.push(...copies); this.sel = new Set(copies);
       }
-      this.drag = { mode: h.edge ? 'resize' : 'move', c0: c, orig: [...this.sel].map((n) => ({ n, s: n.s, p: n.p, l: n.l })) };
+      // positions and pitches as shown: this repeat, in the level's key
+      const d = this.shift(), off = h.e.off;
+      this.drag = { mode: h.edge ? 'resize' : 'move', c0: c, orig: [...this.sel].map((n) => ({ n, s: n.s + off, p: n.p + d, l: n.l })) };
       App.vel = h.n.v; $('#rollVel').value = h.n.v;
-      if (!h.edge) this.audition(h.n.p);
+      if (!h.edge) this.audition(h.e.p);
     } else {
       const q = App.snap;
       const s = clamp(Math.floor(c.step / q) * q, 0, steps - q);
-      const n = { s, l: Math.min(App.noteLen, steps - s), p: clamp(c.p, this.lo, this.hi), v: App.vel };
+      const p = clamp(c.p, this.lo, this.hi);
+      const n = { s: 0, l: Math.min(App.noteLen, steps - s), p: 0, v: App.vel };
+      this.place(n, s, p);
       ns.push(n);
       this.sel.clear(); this.sel.add(n);
-      this.drag = { mode: 'resize', c0: c, orig: [{ n, s: n.s, p: n.p, l: n.l }], created: true };
-      this.audition(n.p);
+      this.drag = { mode: 'resize', c0: c, orig: [{ n, s, p, l: n.l }], created: true };
+      this.audition(p);
     }
     this.draw();
   },
@@ -236,15 +256,16 @@ const Roll = {
       const dsc = Math.max(ds, -minS);
       const dpc = clamp(dp, this.lo - minP, this.hi - maxP);
       let pitchChanged = false;
+      const sh = this.shift();
       d.orig.forEach((o) => {
         const np = o.p + dpc;
-        if (np !== o.n.p) pitchChanged = true;
-        o.n.s = clamp(o.s + dsc, 0, steps - 0.25); o.n.p = np;
+        if (np !== o.n.p + sh) pitchChanged = true;
+        this.place(o.n, clamp(o.s + dsc, 0, steps - 0.25), np);
       });
-      if (pitchChanged && d.orig.length === 1) this.audition(d.orig[0].n.p);
+      if (pitchChanged && d.orig.length === 1) this.audition(d.orig[0].n.p + sh);
     } else {
       const dl = d.created ? Math.ceil((c.step - d.c0.step) / q) * q : ds;
-      d.orig.forEach((o) => { o.n.l = clamp(o.l + dl, Math.min(q, 0.5), steps - o.n.s); if (d.created && o.n.l < App.noteLen && dl <= 0) o.n.l = App.noteLen; });
+      d.orig.forEach((o) => { o.n.l = clamp(o.l + dl, Math.min(q, 0.5), steps - o.s); if (d.created && o.n.l < App.noteLen && dl <= 0) o.n.l = App.noteLen; });
     }
     this.draw();
   },
@@ -253,12 +274,11 @@ const Roll = {
     if (!d) return;
     this.drag = null;
     if (d.mode === 'box') {
-      const ns = this.notes() || [];
       const [x0, x1] = [Math.min(d.x0, d.x1), Math.max(d.x0, d.x1)], [y0, y1] = [Math.min(d.y0, d.y1), Math.max(d.y0, d.y1)];
       this.sel.clear();
-      ns.forEach((n) => {
-        const nx0 = n.s * this.cellW, nx1 = (n.s + n.l) * this.cellW, ny0 = (this.hi - n.p) * this.rowH, ny1 = ny0 + this.rowH;
-        if (nx1 > x0 && nx0 < x1 && ny1 > y0 && ny0 < y1) this.sel.add(n);
+      this.entries().forEach((e) => {
+        const nx0 = e.s * this.cellW, nx1 = (e.s + e.l) * this.cellW, ny0 = (this.hi - e.p) * this.rowH, ny1 = ny0 + this.rowH;
+        if (nx1 > x0 && nx0 < x1 && ny1 > y0 && ny0 < y1) this.sel.add(e.n);
       });
       this.draw();
       return;
@@ -267,6 +287,8 @@ const Roll = {
     if (JSON.stringify(App.project) !== this.snapshot) {
       App.undoStack.push(this.snapshot); App.redoStack = [];
       App.changed();
+      const t = this.track(), key = t && t.role + App.pattern().id;
+      if (t && this._sharedSaid !== key) { this._sharedSaid = key; this.toastShared(t, 'Edited'); }   // once per instrument per track
     }
   },
 
@@ -275,7 +297,7 @@ const Roll = {
     const ns = this.notes(); if (!ns || !this.sel.size) return;
     App.pushUndo();
     const t = this.track();
-    App.pattern().notes[t.id] = ns.filter((n) => !this.sel.has(n));
+    laneMusic(t).notes = ns.filter((n) => !this.sel.has(n));
     this.sel.clear(); this.draw(); App.changed();
   },
   transpose(d) {
@@ -290,24 +312,24 @@ const Roll = {
     const pat = App.pattern();
     App.pushUndo();
     const gen = LOOP_GENERATORS[$('#loopGen').value];
-    pat.notes[t.id] = gen({ root: App.song.key, scale: App.song.scale, bars: pat.bars, prog: $('#loopProg').value });
-    delete pat.origins[t.id]; // generated notes are no longer the theme
-    this.sel.clear(); this.draw(); App.changed();
-    toast(`Inserted “${$('#loopGen').value}” in ${NOTE_NAMES[App.song.key]} ${SCALES[App.song.scale].name}`);
+    writeLaneNotes(App.song, t, gen({ root: App.song.key, scale: App.song.scale, bars: pat.bars, prog: $('#loopProg').value }), pat.bars);
+    this.sel.clear(); this.draw(); App.changed(); UI.renderRollBar();
+    const also = usesText(roleOf(t), pat);
+    toast(`Inserted “${$('#loopGen').value}” in ${NOTE_NAMES[App.song.key]} ${SCALES[App.song.scale].name}${also ? ` — ${t.name} also plays it in ${also}` : ''}`, also ? 4000 : 2500);
   },
 
   /* Centre the view vertically on the current track's notes (or middle C). */
   scrollToNotes() {
     if (UI.view !== 'roll') return;
     this.draw();
-    const ns = this.notes() || [];
+    const ns = this.entries();
     const mid = ns.length ? ns.reduce((a, n) => a + n.p, 0) / ns.length : 60;
     this.wrap.scrollTop = (this.hi - mid) * this.rowH - this.wrap.clientHeight / 2;
   },
 
   /* The drum strip: one row per drum track, a tick per hit (stronger = louder). Read-only. */
   drawDrums(pat, steps, W, size, pos) {
-    const drums = App.song.tracks.filter((t) => t.type === 'drum');
+    const drums = partLanes(App.song, App.pattern()).filter((t) => t.type === 'drum');
     const row = $('#rollDrumRow');
     const show = drums.length > 0 && this.isShown('drums');
     row.hidden = !show;
@@ -321,10 +343,10 @@ const Roll = {
     g.fillStyle = '#16181d'; g.fillRect(0, 0, W, H);
     for (let s = 0; s <= steps; s += 4) { g.fillStyle = s % 16 === 0 ? '#5b6378' : '#2a2f3a'; g.fillRect(s * this.cellW, 0, s % 16 === 0 ? 2 : 1, H); }
     drums.forEach((t, i) => {
-      const voices = pat.drums[t.id] || {};
+      const plays = !!partOf(pat, t);
       for (let s = 0; s < steps; s++) {
         let v = 0;
-        for (const id in voices) v = Math.max(v, voices[id][s] || 0);
+        if (plays) DRUM_VOICES.forEach((x) => (v = Math.max(v, drumAt(t, x.id, s))));
         if (!v) continue;
         g.globalAlpha = 0.35 + 0.65 * Math.min(1, v);
         g.fillStyle = t.color;
@@ -389,8 +411,8 @@ const Roll = {
     // other shown tracks, in their own colours, under the writing track
     this.shownOthers().forEach((o) => {
       g.fillStyle = o.color + '59'; g.strokeStyle = o.color + 'cc'; g.lineWidth = 1;
-      (pat.notes[o.id] || []).forEach((n) => {
-        if (n.s >= steps) return;
+      if (!partOf(pat, o)) return;
+      playNotes(App.song, o, steps).forEach((n) => {
         const x = n.s * this.cellW, y = (this.hi - n.p) * this.rowH, w = Math.max(3, Math.min(n.l, steps - n.s) * this.cellW);
         g.fillRect(x + 1, y + 2, w - 2, this.rowH - 4);
         g.strokeRect(x + 1.5, y + 2.5, w - 3, this.rowH - 5);
@@ -403,16 +425,18 @@ const Roll = {
       return;
     }
 
+    // where the instrument starts again (it repeats in a longer track)
+    const L = this.len();
+    for (let s = L; s < steps; s += L) { g.fillStyle = '#ffd43b66'; g.fillRect(s * this.cellW - 1, 0, 2, H); }
     // notes
-    (pat.notes[t.id] || []).forEach((n) => {
-      if (n.s >= steps) return;
+    this.entries().forEach((n) => {
       const x = n.s * this.cellW, y = (this.hi - n.p) * this.rowH, w = Math.max(3, Math.min(n.l, steps - n.s) * this.cellW);
-      g.globalAlpha = 0.45 + 0.55 * n.v;
+      g.globalAlpha = (0.45 + 0.55 * n.v) * (n.off ? 0.8 : 1);
       g.fillStyle = t.color;
       g.fillRect(x + 1, y + 1, w - 2, this.rowH - 2);
       g.globalAlpha = 1;
       g.fillStyle = '#0006'; g.fillRect(x + w - 4, y + 2, 2, this.rowH - 4);
-      if (this.sel.has(n)) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(x + 1, y + 1, w - 2, this.rowH - 2); }
+      if (this.sel.has(n.n)) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(x + 1, y + 1, w - 2, this.rowH - 2); }
       if (w > 30) { g.fillStyle = '#111'; g.font = '9px system-ui'; g.fillText(noteName(n.p), x + 4, y + this.rowH - 4); }
     });
 
