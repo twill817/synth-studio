@@ -289,6 +289,7 @@ Roles (Drums, Bass, Keys, Pad, Lead) live in the Game Style: each is a sound. A 
 - **Speed is for stings only** (not loops, as the design first allowed): a loop must stay on the level's tempo for the game's beat/bar switching, and the Unity player has no per-segment timing yet. A sting's speed changes its length, and the Unity export writes the real length. A sting *over the music* keeps the loop's clock in the preview (its rendered audio for Unity has the speed).
 - A sting over the music doesn't steer the curves of instruments the loop also plays.
 - The panel is folded by default; the piano roll keeps at least 120 px and the editor scrolls in very short windows.
+- **Changed 2026-11-15 (user): curves apply to the instrument.** The *Whole track* target is gone; each instrument in a track has its own curves, and the panel follows the instrument selected in the sidebar. Only a sting's **Speed** still covers the whole sting (tempo can't differ per instrument). Older projects fold their whole-track curves into each instrument (Volume / Reverb / Delay multiplied, Pan added, Filter the lower cutoff), in levels and the Library alike, so nothing sounds different.
 - Checked: no curves = audio unchanged from before (≤1.3%); a volume swell rises across the loop; a −5 st pitch curve lowers the pitch by the expected ratio; a 200% sting plays (and exports) in half the time; curves travel through the Library both ways; panel add / drag / straight / delete with one undo step each; live play and Simulate without errors.
 
 - Under the Beat grid and Piano Roll, a **Curves** lane (folds away). Pick what it shapes: **Volume, Pan, Reverb, Delay, Filter**, plus **Pitch** (instrument) or **Speed** (whole track).
@@ -300,6 +301,12 @@ Roles (Drums, Bass, Keys, Pad, Lead) live in the Game Style: each is a sound. A 
 - Claude tool: `set_curve` (track, part or whole track, parameter, points, smooth).
 
 ### 6d. Tracks on game events
+✅ Done 2026-11-15 (`js/events.js`: `project.cues` game-wide with library-track targets, `score.cues` as a level's override; `playsOn` / `setStart`; Edit events… shows the scope with Customize / Back to the game style / Make this the game style; Claude's `set_cues` gains `scope` and `reset`). Choices:
+- *Plays on* adds an event as the track's **start**: it replaces what the event started before (other actions such as intensity stay), and says so. It edits the game-wide setting unless this level has its own for that event.
+- A level's override can be empty ("does nothing here").
+- Upgrade: an event becomes game-wide only if nothing changes anywhere — the same in every level, or only starting tracks that other levels don't have. Everything else stays each level's own setting. In the demo, ClockLow / Paused / Resumed became game-wide; in DeadDerby's project (events set up only in Level 1 — Meadow), events that only start tracks no other level has (e.g. RunStarted → Action) can become game-wide; the ones that also duck or set intensity stay Level 1's own.
+- Checked: exports identical before and after the upgrade; a game-wide event reaches a level once its track is placed there; Customize / revert / promote; Simulate fires game-wide events; `set_cues` both scopes and reset.
+
 - In the track bar (above the editors): **Plays on** — the game events that start this track (a loop: *go to* it; a sting: *play* it the way its sting settings say). + Event, × to remove.
 - **The game decides; a level can override** (decision 2): an event's assignment is game-wide by default (e.g. RunStarted → *Chase* in every level that has it). A level can override what an event does (Simulate › *Edit events…*, as now: "Customized for this level" / "Back to the game style").
 - Game events (Game Style) and Simulate's buttons stay. The export's `cues` are written per level from the game-wide assignments plus the level's overrides, so MusicCues needs no change.

@@ -364,7 +364,8 @@ const UI = {
         <span class="muted">Edits stay in ${esc(s.name)}.</span>
         <button data-libact="relink" title="Drop this level's changes and use the library's version again">Back to the library version</button>`;
     }
-    $$('.lib-bar').forEach((el) => { el.innerHTML = head + html; el.hidden = false; });
+    const plays = this.playsOnHTML ? this.playsOnHTML(p, s) : '';
+    $$('.lib-bar').forEach((el) => { el.innerHTML = head + html + plays; el.hidden = false; });
   },
   /* How a sting plays when an event (PlaySting) fires it — this level's setting. */
   stingSettingsHTML(p, s) {
@@ -543,6 +544,7 @@ const UI = {
         <button class="x" data-act="del" title="Remove from this track (its notes here go too)">✕</button>
       </div>`;
     }).join('') || '<p class="muted">No instruments yet — add one below.</p>';
+    if (typeof Curves !== 'undefined' && (this.view === 'roll' || this.view === 'beat')) Curves.render();   // its target follows the selected instrument
   },
   libMark(p) {
     if (p.lib && Library.of(p)) {

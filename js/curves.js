@@ -1,8 +1,9 @@
-/* Curves panel (step 6c): shape the open track — or one instrument in it — over its length.
+/* Curves panel (step 6c): shape each instrument in the open track over the track's length (a sting
+   also has one whole-sting curve, Speed).
    Lives under the Beat grid or the Piano Roll (whichever is open). Data: see CURVE_PARAMS in app.js. */
 
 const Curves = {
-  target: 'track',      // 'track' or a lane id (an instrument in the open track)
+  target: null,         // a lane id (an instrument in the open track), or 'track' (a sting's Speed)
   param: 'vol',
   drag: null,
   hover: null,
@@ -40,7 +41,7 @@ const Curves = {
       }
       if (b.dataset.param) { this.param = b.dataset.param; this.render(); }
     });
-    $('#cvTarget', el).onchange = (e) => { this.target = e.target.value; this.fixParam(); this.render(); };
+    $('#cvTarget', el).onchange = (e) => { this.target = e.target.value; this.fixParam(); this.render(); };   // (the sidebar selection stays)
     this.cv.addEventListener('pointerdown', (e) => this.onDown(e));
     this.cv.addEventListener('pointermove', (e) => this.onMove(e));
     window.addEventListener('pointerup', () => this.onUp());
@@ -53,8 +54,8 @@ const Curves = {
   owner(make) {
     const p = App.pattern();
     if (!p) return null;
-    if (this.target === 'track') return p;
-    return partOf(p, this.target);
+    if (this.target === 'track') return p.kind === 'sting' ? p : null;
+    return this.target ? partOf(p, this.target) : null;
   },
   curves(make) {
     const o = this.owner();
@@ -70,11 +71,16 @@ const Curves = {
     if (!Object.keys(o.curves).length) delete o.curves;
   },
   params() {
-    const p = App.pattern();
-    if (this.target === 'track') return TRACK_CURVES.filter((k) => k !== 'speed' || (p && p.kind === 'sting'));
-    return PART_CURVES;
+    return this.target === 'track' ? TRACK_CURVES : PART_CURVES;
   },
-  fixParam() { if (!this.params().includes(this.param)) this.param = 'vol'; },
+  fixParam() { if (!this.params().includes(this.param)) this.param = this.params()[0]; },
+  /* Keep the target valid: an instrument in the open track (the selected one first), or a sting's Speed. */
+  fixTarget(p) {
+    if (App.sel.track !== this.lastSel) { this.lastSel = App.sel.track; if (partOf(p, App.sel.track)) this.target = App.sel.track; }   // follow the sidebar
+    if (this.target === 'track' ? p.kind === 'sting' : this.target && partOf(p, this.target)) return;
+    const lanes = partLanes(App.song, p);
+    this.target = partOf(p, App.sel.track) ? App.sel.track : lanes.length ? lanes[0].id : p.kind === 'sting' ? 'track' : null;
+  },
 
   /* ---------- geometry ---------- */
   steps() { const p = App.pattern(); return p ? p.bars * 16 : 32; },
@@ -107,7 +113,7 @@ const Curves = {
   /* ---------- editing ---------- */
   onDown(e) {
     if (e.button !== 0 || !App.pattern()) return;
-    if (this.target !== 'track' && !this.owner()) return;
+    if (!this.owner()) return;
     const c = this.local(e);
     App.pushUndo();
     this.snapshot = App.undoStack[App.undoStack.length - 1];
@@ -172,7 +178,7 @@ const Curves = {
     const p = App.pattern();
     this.el.hidden = !p;
     if (!p) return;
-    if (this.target !== 'track' && !partOf(p, this.target)) this.target = 'track';
+    this.fixTarget(p);
     this.fixParam();
     const lanes = partLanes(App.song, p);
     const count = (o) => (o && o.curves ? Object.values(o.curves).filter((x) => x && x.length).length : 0);
@@ -181,12 +187,12 @@ const Curves = {
     $('.cv-body', this.el).hidden = this.folded;
     this.cv.hidden = this.folded;
     if (this.folded) return;
-    $('#cvTarget', this.el).innerHTML = `<option value="track">Whole track${count(p) ? ' ●' : ''}</option>` +
-      lanes.map((t) => `<option value="${t.id}" ${t.id === this.target ? 'selected' : ''}>${esc(t.name)}${count(partOf(p, t)) ? ' ●' : ''}</option>`).join('');
-    $('#cvTarget', this.el).value = this.target;
+    $('#cvTarget', this.el).innerHTML = lanes.map((t) => `<option value="${t.id}">${esc(t.name)}${count(partOf(p, t)) ? ' ●' : ''}</option>`).join('') +
+      (p.kind === 'sting' ? `<option value="track">Whole sting (Speed)${count(p) ? ' ●' : ''}</option>` : '');
+    $('#cvTarget', this.el).hidden = !this.target;
+    if (this.target) $('#cvTarget', this.el).value = this.target;
     const cs = this.curves(false) || {};
-    $('.cv-params', this.el).innerHTML = this.params().map((k) => `<button class="chip-btn ${k === this.param ? 'on' : ''}" data-param="${k}" title="${k === 'speed' ? 'Tempo of this sting (the game plays it exactly so)' : k === 'pitch' ? 'Bend the pitch, in semitones' : k === 'cut' ? 'Low-pass filter cutoff' : k === 'pan' ? 'Move the sound left or right' : '% of the mix setting'}">${CURVE_PARAMS[k].name}${cs[k] && cs[k].length ? ' ●' : ''}</button>`).join('') +
-      (this.target === 'track' && p.kind !== 'sting' ? '<span class="muted cv-note" title="A loop keeps the level\'s tempo so the game can switch on the beat">Speed: stings only</span>' : '');
+    $('.cv-params', this.el).innerHTML = this.params().map((k) => `<button class="chip-btn ${k === this.param ? 'on' : ''}" data-param="${k}" title="${k === 'speed' ? 'Tempo of this sting (the game plays it exactly so)' : k === 'pitch' ? 'Bend the pitch, in semitones' : k === 'cut' ? 'Low-pass filter cutoff' : k === 'pan' ? 'Move the sound left or right' : '% of the mix setting'}">${CURVE_PARAMS[k].name}${cs[k] && cs[k].length ? ' ●' : ''}</button>`).join('');
     $('[data-cv="clear"]', this.el).hidden = !(cs[this.param] && cs[this.param].length);
     this.draw();
   },
@@ -233,8 +239,8 @@ const Curves = {
       }
     } else {
       g.fillStyle = '#8a91a3'; g.font = '12px system-ui';
-      const what = this.target === 'track' ? 'the whole track' : (App.track(this.target) || {}).name || 'this instrument';
-      g.fillText(`No ${P.name.toLowerCase()} curve on ${what} — click to add a point`, this.padL + 10, H / 2 + 4);
+      const what = this.target === 'track' ? 'the whole sting' : (App.track(this.target) || {}).name || 'this instrument';
+      g.fillText(this.target ? `No ${P.name.toLowerCase()} curve on ${what} — click to add a point` : 'Add an instrument to this track to give it curves', this.padL + 10, H / 2 + 4);
     }
     if (pos && pos.pat === App.sel.pattern) { g.fillStyle = '#69db7c'; g.fillRect(this.xOf(pos.local), 0, 2, H); }
   },

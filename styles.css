@@ -146,6 +146,16 @@ main { display: grid; grid-template-columns: 230px 1fr; min-height: 0; }
 .roll-drums[hidden] { display: none; }
 #rollDrumKeys { position: sticky; left: 0; z-index: 1; flex: none; }
 #rollDrums { flex: none; cursor: pointer; }
+/* Plays on (step 6d) */
+.pb-plays { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; flex-basis: 100%; }
+.pb-plays .tb-label { margin-right: 2px; }
+.po-chip { display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px 8px; border-radius: 999px; background: #22324a; border: 1px solid #35506f; font-size: 11px; }
+.po-chip.own { background: #3a2f1c; border-color: #6b5422; }
+.po-chip button { border: 0; background: none; padding: 0 5px; font-size: 12px; line-height: 1; color: var(--muted); }
+.pb-plays select { font-size: 11px; padding: 1px 4px; }
+.ev-scope { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; font-size: 11px; }
+.ev-scope button { font-size: 11px; padding: 1px 8px; }
+.ev-skip { font-size: 11px; margin-top: 2px; }
 /* Curves (step 6c) */
 .curves { border-top: 1px solid var(--line); background: #16181d; flex: none; }
 .curves[hidden] { display: none; }

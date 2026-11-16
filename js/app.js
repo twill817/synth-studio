@@ -129,8 +129,8 @@ function pruneLanes(song) {
   song.patterns.forEach((p) => gone.forEach((t) => { delete p.notes[t.id]; delete p.drums[t.id]; if (p.origins) delete p.origins[t.id]; }));
   return gone;
 }
-/* ---------- curves (step 6c): shape a track, or one instrument in it, over its length ----------
-   p.curves = { [param]: [{ s, v, k? }] } (the whole track); part.curves likewise (one instrument).
+/* ---------- curves (step 6c): shape each instrument in a track over the track's length ----------
+   part.curves = { [param]: [{ s, v, k? }] } (one instrument in a track); p.curves only holds a sting's Speed.
    s = position in 16ths (0 … bars×16), v = value in the param's own units, k: 'line' = straight to
    the next point (default: smooth). Volume / Reverb / Delay are % of the mix setting; Pan −100…100
    (moves the sound on top of its mix pan); Filter = low-pass cutoff in Hz; Pitch in semitones
@@ -144,7 +144,28 @@ const CURVE_PARAMS = {
   pitch: { name: 'Pitch', min: -12, max: 12, def: 0, unit: 'st', part: true },
   speed: { name: 'Speed', min: 50, max: 200, def: 100, unit: '%', track: true, sting: true },
 };
-const TRACK_CURVES = ['vol', 'pan', 'rev', 'dly', 'cut', 'speed'];
+const TRACK_CURVES = ['speed'];   // curves shape instruments; only a sting's Speed covers the whole track
+/* Older projects had whole-track curves for Volume / Pan / Reverb / Delay / Filter: fold them into each
+   instrument's curve (multiplied for %, added for pan, the lower cutoff for the filter), so nothing
+   sounds different. owner: a pattern or library item with .curves; parts: their curve owners. */
+function foldTrackCurves(owner, parts) {
+  const c = owner && owner.curves;
+  if (!c) return false;
+  const keys = ['vol', 'pan', 'rev', 'dly', 'cut'].filter((k) => c[k] && c[k].length);
+  if (!keys.length) { Object.keys(c).forEach((k) => { if (!c[k] || !c[k].length) delete c[k]; }); if (!Object.keys(c).length) delete owner.curves; return false; }
+  const both = (k, a, b) => (k === 'pan' ? clamp(a + b, -100, 100) : k === 'cut' ? Math.min(a, b) : Math.round((a * b / 100) * 10) / 10);
+  parts.forEach((x) => keys.forEach((k) => {
+    x.curves = x.curves || {};
+    const mine = x.curves[k];
+    if (!mine || !mine.length) { x.curves[k] = clone(c[k]); return; }
+    const at = [...new Set([...mine, ...c[k]].map((q) => q.s))].sort((a, b) => a - b);
+    const line = mine.every((q) => q.k === 'line') && c[k].every((q) => q.k === 'line');
+    x.curves[k] = at.map((s) => ({ s, v: both(k, evalCurve(mine, s, k), evalCurve(c[k], s, k)), ...(line ? { k: 'line' } : {}) }));
+  }));
+  keys.forEach((k) => delete c[k]);
+  if (!Object.keys(c).length) delete owner.curves;
+  return true;
+}
 const PART_CURVES = ['vol', 'pan', 'rev', 'dly', 'cut', 'pitch'];
 function curveText(param, v) {
   const P = CURVE_PARAMS[param];
@@ -496,6 +517,11 @@ const App = {
       if (o) r.from = o.id;
     });
     Library.migrate(p);
+    // Curves shape instruments only (whole-track curves fold into each instrument; a sting's Speed stays).
+    p.library.forEach((it) => { if (it.order) foldTrackCurves(it, it.order.map((k) => it.parts[k] && it.parts[k].mix).filter(Boolean)); });
+    p.scores.forEach((s) => s.patterns.forEach((pt) => {
+      if (foldTrackCurves(pt, pt.parts || []) && pt.lib && pt.libSig && typeof pt.libSig === 'object') pt.libSig = Library.sig(Library.capture(pt, s));
+    }));
     p.scores.forEach((s) => pruneLanes(s));
     GameEvents.migrate(p);
   },

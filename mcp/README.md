@@ -49,7 +49,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | `transform_notes` | Transpose, octave, quantize, velocity |
 | `insert_theme` / `save_theme` / `reapply_theme` | Use the game's themes (library melodies) in any level (fitted to its key), save new ones, refresh every linked use |
 | `set_events` | The game's event list (names as the game fires them) |
-| `set_cues` | What an event does in a level (go to, sting, intensity, duck, end, fade…) |
+| `set_cues` | What an event does — game-wide (`scope: game_style`, targets are tracks) or one level's own setting; `reset` goes back to the game style |
 | `set_sting` | How a sting plays when fired: instead / over the music / then go to / end; when it starts |
 | `place_pattern` | Reuse a library segment or sting in a level, linked (moved into the level's key) |
 | `library_item` | Rename / duplicate / delete a library item; split a level's pattern into its own version, or relink it |
@@ -58,7 +58,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | `add_pattern` / `set_pattern` / `delete_pattern` | New segments and stings (each becomes a library item), length, entry stings; delete removes from the level only |
 | `set_arrangement` | Export playthrough (pattern order for plain audio/MIDI export) |
 | `set_layers` | Intensity layers and which instruments are on each |
-| `set_curve` | Shape a pattern over time: Volume, Pan, Reverb, Delay, Filter on the whole pattern or one instrument; Pitch (instrument); Speed (stings) |
+| `set_curve` | Shape a pattern over time: Volume, Pan, Reverb, Delay, Filter, Pitch on one instrument in a pattern; Speed on a whole sting |
 | `add_track` / `set_track` / `remove_track` | A pattern's instruments: add one, change its mix / mute / solo / layer in that pattern, remove it (default: the open pattern) |
 | **Sound & consistency** | |
 | `set_sound` | Change a sound for one level (`scope: level`) or the whole game (`scope: game_style` — reports every score it reaches) |

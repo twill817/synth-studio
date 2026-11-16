@@ -394,26 +394,51 @@ Object.assign(BridgeAPI, {
     }, { view: 'style' });
   },
 
-  setCues({ score, event, actions }) {
+  /* scope "game_style": what the event does in every level (targets are library tracks, found by name in
+     this level or the library); "level": this level's own setting (an empty list = nothing here).
+     reset: drop this level's own setting (back to the game style). */
+  setCues({ score, event, actions, scope = 'level', reset }) {
     return Edit.run(score, (s) => {
       const ev = GameEvents.byName(event);
       if (!ev) throw new Error(`No game event “${event}”. Events: ${GameEvents.list().map((e) => e.name).join(', ') || 'none'} (add it with set_events).`);
+      if (reset) {
+        if (!GameEvents.isCustom(s, ev)) throw new Error(`${s.name} has no own setting for ${ev.name}; it already follows the game style.`);
+        GameEvents.revert(s, ev);
+        return `${s.name}: ${ev.name} is back on the game style → ${GameEvents.summary(s, ev)}.`;
+      }
+      if (!['level', 'game_style'].includes(scope)) throw new Error('scope must be "level" or "game_style".');
+      const game = scope === 'game_style';
       const out = (actions || []).map((a, k) => {
         const A = GameEvents.ACTIONS[a.do];
         if (!A) throw new Error(`Action ${k + 1}: “${a.do}” isn't an action. Actions: ${Object.keys(GameEvents.ACTIONS).join(', ')}.`);
         const x = { do: a.do, target: null, value: A.def ?? null };
         if (A.target) {
           if (!a.target) throw new Error(`Action ${k + 1} (${a.do}) needs a target ${A.target}.`);
-          const p = Ref.pattern(s, a.target);
-          if ((A.target === 'sting') !== (p.kind === 'sting')) throw new Error(`Action ${k + 1}: “${p.name}” isn't a ${A.target}.`);
-          x.target = p.id;
+          if (game) {
+            const here = s.patterns.find((p) => p.name.toLowerCase() === String(a.target).toLowerCase());
+            const it = here ? Library.find(GameEvents.itemOf(here)) : Library.patterns().find((x2) => x2.name.toLowerCase() === String(a.target).toLowerCase());
+            if (!it) throw new Error(`Action ${k + 1}: no track “${a.target}” in ${s.name} or the library.`);
+            if ((A.target === 'sting') !== (it.kind === 'sting')) throw new Error(`Action ${k + 1}: “${it.name}” isn't a ${A.target}.`);
+            x.target = it.id;
+          } else {
+            const p = Ref.pattern(s, a.target);
+            if ((A.target === 'sting') !== (p.kind === 'sting')) throw new Error(`Action ${k + 1}: “${p.name}” isn't a ${A.target}.`);
+            x.target = p.id;
+          }
         }
         if (A.value === 'pct') x.value = clamp(a.value ?? A.def, 0, 1);
         if (A.value === 'sec') x.value = clamp(a.value ?? A.def, 0.1, 30);
         return x;
       });
-      if (out.length) s.cues[ev.id] = out; else delete s.cues[ev.id];
-      return `${s.name}: ${ev.name} → ${GameEvents.summary(s, ev)}.`;
+      if (game) {
+        if (out.length) App.project.cues[ev.id] = out; else delete App.project.cues[ev.id];
+        const own = GameEvents.customizedIn(ev);
+        return { gameStyle: `${ev.name} → ${out.map((a) => GameEvents.describeGame(s, a)).join(' + ') || 'nothing'}`,
+          perLevel: Object.fromEntries(App.project.scores.map((x2) => [x2.name, GameEvents.summary(x2, ev) + (GameEvents.isCustom(x2, ev) ? ' (its own setting)' : '')])),
+          ...(own.length ? { keepOwnSetting: own } : {}) };
+      }
+      s.cues[ev.id] = out;
+      return `${s.name}: ${ev.name} → ${GameEvents.summary(s, ev)} (this level's own setting; reset: true goes back to the game style).`;
     });
   },
 
@@ -558,22 +583,21 @@ Object.assign(BridgeAPI, {
     }, Edit.consumeShow('mixer'));
   },
 
-  /* Curves (step 6c): a whole pattern's, or one instrument's in it. points: [{ at, value }] with at =
-     "bar.beat.16th" (or "end"); straight = straight lines between them (else smooth). */
+  /* Curves (step 6c): one instrument's in a pattern (target), or a sting's Speed (no target). points:
+     [{ at, value }] with at = "bar.beat.16th" (or "end"); straight = straight lines between them (else smooth). */
   setCurve({ score, pattern, target, param, points, straight, clear }) {
     return Edit.run(score, (s) => {
       const p = Ref.patternOrOpen(s, pattern);
       const key = Object.keys(CURVE_PARAMS).find((k) => k === param || CURVE_PARAMS[k].name.toLowerCase() === String(param || '').toLowerCase());
       if (!key) throw new Error(`param must be one of: ${Object.values(CURVE_PARAMS).map((x) => x.name).join(', ')}.`);
       const P = CURVE_PARAMS[key];
-      const whole = !target || /^(track|whole( track)?|pattern|all)$/i.test(String(target).trim());
+      const whole = key === 'speed' || !target || /^(track|whole( track| sting)?|pattern|all)$/i.test(String(target).trim());
       let owner, label;
       if (whole) {
-        if (!TRACK_CURVES.includes(key)) throw new Error(`${P.name} curves go on one instrument (give target).`);
+        if (!TRACK_CURVES.includes(key)) throw new Error(`Curves go on one instrument: give target (an instrument in “${p.name}”: ${partLanes(s, p).map((t) => t.name).join(', ') || 'none yet'}).`);
         if (key === 'speed' && p.kind !== 'sting') throw new Error('Speed curves are for stings: a loop keeps the level\'s tempo so the game can switch on the beat.');
         owner = p; label = `the whole of “${p.name}”`;
       } else {
-        if (!PART_CURVES.includes(key)) throw new Error(`${P.name} curves go on the whole pattern (target "track").`);
         const t = Ref.track(s, target);
         owner = partOf(p, t);
         if (!owner) throw new Error(`“${t.name}” isn't in “${p.name}”. Add it with add_track first.`);
