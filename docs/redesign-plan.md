@@ -55,7 +55,7 @@ Each step ships on its own, keeps the app working, and is checked against the mu
    - ✅ **4a, Synth** (done 2026-11-12; code in `js/events.js`, sting behaviours in `Seq.request` / `tick`). Game Style → Game events; Simulate's event buttons and *Edit events…*; sting settings (When fired, Starts, music level) in the pattern bar; manifest version 2 with `cues` and sting `play/then/at/duck`; Claude's `set_events`, `set_cues`, `set_sting`. Until 4b, the Unity player ignores the new manifest fields, so a sting set to *over* / *then go to* still plays *instead* in the game.
    - ✅ **4b, Unity** (done 2026-11-12): `unity/AdaptiveMusicPlayer.cs` (PlaySting follows the sting's play/then/at/duck; over the music turns only the loop down; test panel lists events) and `unity/MusicCues.cs` (table rows override the exported cues). Compile-checked against Unity 6000.6.7f1's DLLs and copied into DeadDerby's `Assets/_Project/Audio/Music/`. Play-tested in ProvingTrench (2026-11-12): compiles in Unity, reads the old version 1 export, all seven events from the scene's table work, and *over the music* (loop turns down, comes back) and *then go to* work when set on the sting; Console clean. DeadDerby's seven events and cues are in the Synth project; the version 2 export is in DeadDerby and every event runs from it (`(export)` in the Console) when the scene's table is empty. The scene's MusicCues table was then emptied (ProvingTrench saved), so the export drives the music; the game's own RunWaiting at scene start runs from the export.
    - Unity work: play a sting *over* the music without stopping the loop (with ducking). "Instead, then back" is PlaySting; "End the music" is EndWithSting.
-5. ✅ **Several instruments at once: the layered roll** (done 2026-11-12, as designed below; code in `js/roll.js` — hiddenSet / onChip / hitOther / drawDrums — and `UI.renderRollBar`). The piano roll shows the tracks you pick in their own colours, with a drum strip on top. Clicking a chip or another track's note keeps the roll's scroll position (the sidebar still centres on the track's notes).
+5. ✅ **Several instruments at once: the layered roll** (done 2026-11-12, as designed below; code in `js/roll.js` — hiddenSet / onChip / drawDrums — and `UI.renderRollBar`). The piano roll shows the tracks you pick in their own colours, with a drum strip on top. Clicking a chip keeps the roll's scroll position (the sidebar still centres on the track's notes). Other tracks' notes can't be clicked.
 6. **Later:** maybe weave a theme into whatever is playing instead of a separate sting; maybe a stacked-lanes overview of the whole pattern.
 
 ## Step 2 design: the library
@@ -217,8 +217,7 @@ A row of chips at the start of the piano roll's toolbar, one per synth track in 
 
 ### Notes of other tracks
 - Drawn at about half strength in their own colour with a thin outline, under the writing track's notes, so overlaps stay readable.
-- **Click one** to switch writing to its track and select that note; nothing moves on that first click. Drag, resize, delete, box select and Del work on the writing track only, so nothing on another track changes by accident.
-- Hover shows the track's name and the note.
+- They can't be clicked: clicks, drags, box select and Del only ever touch the writing track, so nothing on another track changes by accident. To edit another track, click its chip. (Clicking another track's note to switch to it was built, then removed at the user's request, 2026-11-12.)
 
 ### Drum strip
 - A thin strip pinned above the grid (it scrolls sideways with it): one row per drum track, a tick per hit, stronger for louder hits. It follows Bars and Zoom and shows the playhead.

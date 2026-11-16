@@ -159,18 +159,6 @@ const Roll = {
     UI.selectTrack(t.id); UI.showView('beat');
   },
   drumRowH: 9,
-  /* A note of another shown track under the pointer (topmost first). */
-  hitOther(c) {
-    const pat = App.pattern(), steps = pat.bars * 16, others = this.shownOthers();
-    for (let k = others.length - 1; k >= 0; k--) {
-      const ns = pat.notes[others[k].id] || [];
-      for (let i = ns.length - 1; i >= 0; i--) {
-        const n = ns[i];
-        if (n.s < steps && n.p === c.p && c.step >= n.s && c.step <= n.s + n.l) return { t: others[k], n };
-      }
-    }
-    return null;
-  },
 
   track() { const t = App.track(); return t && t.type === 'synth' ? t : null; },
   notes() { const t = this.track(); if (!t) return null; const p = App.pattern(); ensurePattern(p); return p.notes[t.id]; },
@@ -199,17 +187,9 @@ const Roll = {
   },
 
   onDown(e) {
-    const c = this.toCell(e);
-    if (!e.shiftKey && !(this.track() && this.hit(c))) {
-      // a note of another shown track: write into that track and select the note; nothing moves
-      const o = this.hitOther(c);
-      if (o) {
-        if (e.button === 0) { UI.selectTrack(o.t.id, { keepScroll: true }); this.sel = new Set([o.n]); App.vel = o.n.v; $('#rollVel').value = o.n.v; this.draw(); }
-        return;
-      }
-    }
     const ns = this.notes();
     if (!ns) return;
+    const c = this.toCell(e);
     const h = this.hit(c);
     const steps = App.pattern().bars * 16;
     if (e.button === 2) {
@@ -244,10 +224,7 @@ const Roll = {
     const c = this.toCell(e);
     if (!this.drag) {
       const h = this.track() && this.hit(c);
-      const o = !h && this.hitOther(c);
-      this.grid.style.cursor = h ? (h.edge ? 'ew-resize' : 'move') : o ? 'pointer' : 'crosshair';
-      const tip = o ? `${o.t.name} · ${noteName(o.n.p)} — click to write into ${o.t.name}` : '';
-      if (this.grid.title !== tip) this.grid.title = tip;
+      this.grid.style.cursor = h ? (h.edge ? 'ew-resize' : 'move') : 'crosshair';
       return;
     }
     const d = this.drag, q = App.snap, steps = App.pattern().bars * 16;
@@ -422,7 +399,7 @@ const Roll = {
 
     if (!t) {
       g.fillStyle = '#8a91a3'; g.font = '14px system-ui';
-      g.fillText('Pick a track to write into: a chip above, a note in the roll, or the sidebar.', 20 + this.wrap.scrollLeft, this.wrap.scrollTop + 40);
+      g.fillText('Pick a track to write into: a chip above, or the sidebar.', 20 + this.wrap.scrollLeft, this.wrap.scrollTop + 40);
       return;
     }
 
