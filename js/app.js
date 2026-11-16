@@ -69,9 +69,86 @@ function soundName(s) {
   return s.kit ? (DRUM_KITS[s.kit] || {}).name || 'Drum kit' : (SYNTH_PRESETS[s.preset] || {}).name || 'Synth';
 }
 
+/* A lane: one of a level's instruments (its sound customization lives here). Its mix, layer, mute
+   and solo are per track (pattern): see p.parts. */
 function makeTrack(role, name) {
-  return { id: uid(), name: name || role.name, role: role.id, type: role.type, color: role.color, sound: null, layer: 'base',
-    mute: false, solo: false, ...defaultInstMix(role), ...(role.mix || {}) };
+  return { id: uid(), name: name || role.name, role: role.id, type: role.type, color: role.color, sound: null };
+}
+
+/* ---------- parts: the instruments in a track (level pattern), each with its own mix ----------
+   p.parts = [{ t: laneId, vol, pan, drive, tone, rev, dly, layer, mute, solo }] in order. */
+const LEGACY_LANE_KEYS = ['vol', 'pan', 'drive', 'tone', 'rev', 'dly', 'layer', 'mute', 'solo'];
+function partOf(p, t) { const id = t && (t.id || t); return p && p.parts ? p.parts.find((x) => x.t === id) || null : null; }
+function partLanes(song, p) { return (p && p.parts ? p.parts : []).map((x) => song.tracks.find((t) => t.id === x.t)).filter(Boolean); }
+/* The first part a lane has in any of the level's tracks (its usual mix), or null. */
+function laneMix(song, t, except) {
+  for (const p of song.patterns) { if (p === except) continue; const m = partOf(p, t); if (m) return m; }
+  return null;
+}
+/* A new part for lane t: the lane's usual mix in this level, else its instrument's default mix. */
+function newPart(song, t, except) {
+  const m = laneMix(song, t, except);
+  if (m) return { ...clone(m), t: t.id };
+  const role = App.project.style.roles.find((r) => r.id === t.role);
+  const mix = { ...defaultInstMix(role || t), ...((role && role.mix) || {}) };
+  const part = { t: t.id, layer: song.layers[0].id, mute: false, solo: false };
+  INST_MIX_KEYS.forEach((k) => (part[k] = mix[k]));
+  return part;
+}
+function normalizePart(song, x) {
+  if (!song.layers.some((l) => l.id === x.layer)) x.layer = song.layers[0].id;
+  x.mute = !!x.mute; x.solo = !!x.solo;
+}
+/* Add an instrument to a track: reuse a lane of that instrument the track doesn't have yet, else add one. */
+function addInstrumentToPattern(song, p, role, name) {
+  let t = name ? null : song.tracks.find((x) => x.role === role.id && !partOf(p, x));
+  if (!t) {
+    const n = song.tracks.filter((x) => x.role === role.id).length;
+    t = makeTrack(role, name || (n ? `${role.name} ${n + 1}` : role.name));
+    song.tracks.push(t);
+  }
+  p.parts.push(newPart(song, t, p));
+  ensurePattern(p, song);
+  return t;
+}
+/* Take an instrument out of a track (its notes there go too). */
+function removeInstrumentFromPattern(song, p, t) {
+  p.parts = p.parts.filter((x) => x.t !== t.id);
+  if (t.type === 'drum') p.drums[t.id] = {}; else p.notes[t.id] = [];
+  if (p.origins) delete p.origins[t.id];
+  ensurePattern(p, song);
+  return pruneLanes(song);
+}
+/* Drop lanes no track uses (unless the level customized their sound). Returns the removed lanes. */
+function pruneLanes(song) {
+  const used = new Set();
+  song.patterns.forEach((p) => (p.parts || []).forEach((x) => used.add(x.t)));
+  const gone = song.tracks.filter((t) => !used.has(t.id) && !t.sound);
+  if (!gone.length) return [];
+  song.tracks = song.tracks.filter((t) => !gone.includes(t));
+  song.patterns.forEach((p) => gone.forEach((t) => { delete p.notes[t.id]; delete p.drums[t.id]; if (p.origins) delete p.origins[t.id]; }));
+  return gone;
+}
+/* Projects from before step 6b kept mix, layer, mute and solo on the level's lanes. Each lane becomes a
+   part of every track where it has notes (a track with no notes at all gets every lane), with that mix. */
+function migrateLanesToParts(s, roles) {
+  if (!s.tracks.some((t) => LEGACY_LANE_KEYS.some((k) => k in t))) return false;
+  const has = (p, t) => (t.type === 'drum' ? Object.values(p.drums[t.id] || {}).some((r) => r.some((v) => v > 0)) : (p.notes[t.id] || []).length > 0);
+  s.patterns.forEach((p) => {
+    let lanes = s.tracks.filter((t) => has(p, t));
+    if (!lanes.length) lanes = s.tracks.slice();
+    p.parts = lanes.map((t) => {
+      const role = roles.find((r) => r.id === t.role);
+      const base = { ...defaultInstMix(role || t), ...((role && role.mix) || {}) };
+      const part = { t: t.id };
+      INST_MIX_KEYS.forEach((k) => (part[k] = typeof t[k] === 'number' ? t[k] : base[k]));
+      part.layer = s.layers.some((l) => l.id === t.layer) ? t.layer : s.layers[0].id;
+      part.mute = !!t.mute; part.solo = !!t.solo;
+      return part;
+    });
+  });
+  s.tracks.forEach((t) => LEGACY_LANE_KEYS.forEach((k) => delete t[k]));
+  return true;
 }
 function makePattern(name, bars = 2, kind = 'loop') { return { id: uid(), name, bars, drums: {}, notes: {}, kind, entrySting: null, origins: {} }; }
 function makeScore(name, style = App.project.style) {
@@ -100,31 +177,31 @@ function ensurePattern(pat, song = App.song) {
       });
     } else pat.notes[t.id] = pat.notes[t.id] || [];
   });
+  // A new track gets every instrument of the level; parts of removed lanes go.
+  if (!pat.parts && !song.tracks.some((t) => LEGACY_LANE_KEYS.some((k) => k in t))) pat.parts = song.tracks.map((t) => newPart(song, t, pat));
+  if (pat.parts) {
+    pat.parts = pat.parts.filter((x) => song.tracks.some((t) => t.id === x.t));
+    pat.parts.forEach((x) => normalizePart(song, x));
+  }
 }
 function ensureAll(song = App.song) { song.patterns.forEach((p) => ensurePattern(p, song)); }
 
-/* A new track for an instrument that was duplicated from another: copy the beats (or notes) and layer
-   of a track in this level that plays the original (or the original's original), in every pattern.
-   Returns that source track, or null when the level has none. */
-function copyPartsFromOriginal(song, t) {
+/* An instrument added to a track that was duplicated from another one: copy the beats (or notes) and
+   layer of the instrument in this track that plays the original (or the original's original).
+   Returns that source lane, or null when the track has none. */
+function copyPartsFromOriginal(song, p, t) {
   let fromId = (App.role(t.role) || {}).from, src = null;
   const seen = new Set();
   while (fromId && !seen.has(fromId) && !src) {
     seen.add(fromId);
-    src = song.tracks.find((x) => x.role === fromId && x !== t && x.type === t.type) || null;
+    src = partLanes(song, p).find((x) => x.role === fromId && x !== t && x.type === t.type) || null;
     fromId = (App.role(fromId) || {}).from;
   }
   if (!src) return null;
-  song.patterns.forEach((p) => {
-    if (t.type === 'drum') p.drums[t.id] = clone(p.drums[src.id] || {});
-    else p.notes[t.id] = clone(p.notes[src.id] || []);
-  });
-  t.layer = src.layer;
-  ensureAll(song);
-  // Linked patterns: mark the copied part as an edit, so the next sync stores it in the library item
-  // (a part the library hasn't seen otherwise takes the library's — empty — version).
-  Library.ensureParts(song);
-  song.patterns.forEach((p) => { if (p.lib && p.libSig && p.libSig !== 'pull' && p.libSig.parts) p.libSig.parts[t.part] = '~copied'; });
+  if (t.type === 'drum') p.drums[t.id] = clone(p.drums[src.id] || {});
+  else p.notes[t.id] = clone(p.notes[src.id] || []);
+  partOf(p, t).layer = partOf(p, src).layer;
+  ensurePattern(p, song);
   return src;
 }
 
@@ -314,6 +391,13 @@ const App = {
     this.project = p || demoProject();
     this.migrate(this.project);
     this.resetSelection();
+    this.migrationNote();
+  },
+  /* Say once what the step-6b upgrade changed in a saved project (nothing in sound). */
+  migrationNote() {
+    const p = this.project, n = p._partsSplit;
+    delete p._partsSplit; delete p._partsMigrated;
+    if (n) setTimeout(() => toast(`Each track now lists its own instruments and mix. ${n} linked track${n > 1 ? 's' : ''} had a different mix in another level, so ${n > 1 ? 'those copies are' : 'that copy is'} now that level's own version (sounds the same; “Back to the library version” relinks).`, 9000), 800);
   },
   migrate(p) {
     p.style.mix = Object.assign({ ...DEFAULT_MIX }, p.style.mix || {});
@@ -331,9 +415,7 @@ const App = {
         p.origins = p.origins || {};
         Object.keys(p.origins).forEach((k) => { if (!p.origins[k] || !p.origins[k].theme) delete p.origins[k]; });
       });
-      s.tracks.forEach((t) => { if (!s.layers.some((l) => l.id === t.layer)) t.layer = s.layers[0].id; });
       s.tracks.forEach((t) => { if (t.sound && t.sound.synth) t.sound.synth = Object.assign({}, SYNTH_PRESETS[t.sound.preset] || SYNTH_PRESETS.piano, t.sound.synth); });
-      ensureAll(s);
     });
     // Instruments (roles) get a default mix: taken from the first track that plays them, else the defaults.
     p.style.roles.forEach((r) => {
@@ -343,6 +425,10 @@ const App = {
       r.mix = defaultInstMix(r);
       if (t) INST_MIX_KEYS.forEach((k) => { if (typeof t[k] === 'number') r.mix[k] = t[k]; });
     });
+    // Step 6b: each track lists its instruments (parts) with their own mix; lanes keep none.
+    let migrated = 0;
+    p.scores.forEach((s) => { if (migrateLanesToParts(s, p.style.roles)) migrated++; ensureAll(s); });
+    if (migrated) p._partsMigrated = true;
     // Copies made before instruments remembered their original ("Drums 2" from "Drums"): link them by name.
     p.style.roles.forEach((r) => {
       if (r.from) return;
@@ -351,6 +437,7 @@ const App = {
       if (o) r.from = o.id;
     });
     Library.migrate(p);
+    p.scores.forEach((s) => pruneLanes(s));
     GameEvents.migrate(p);
   },
   resetSelection() {
@@ -358,7 +445,18 @@ const App = {
     this.sel.pattern = 0;
     this.sel.role = null;
   },
-  track(id = this.sel.track) { return this.song.tracks.find((t) => t.id === id); },
+  /* A lane by id; with no id, the selected instrument of the open track (kept to one the track has). */
+  track(id) {
+    if (id !== undefined) return this.song.tracks.find((t) => t.id === id);
+    let t = this.song.tracks.find((x) => x.id === this.sel.track);
+    const p = this.pattern();
+    if (p && p.parts && !(t && partOf(p, t))) {
+      const lanes = partLanes(this.song, p);
+      const nt = (t && lanes.find((x) => x.type === t.type)) || lanes.find((x) => x.type === 'synth') || lanes[0];
+      if (nt) { this.sel.track = nt.id; t = nt; }
+    }
+    return t;
+  },
   role(id) { return this.style.roles.find((r) => r.id === id); },
   pattern() { return this.song.patterns[this.sel.pattern]; },
   /* How many tracks (and in how many scores) play a role's shared sound. */
@@ -398,6 +496,7 @@ const App = {
     const prevScore = this.project && this.song && this.song.id;
     this.project = p;
     this.migrate(p);
+    this.migrationNote();
     if (!keepHistory) { this.undoStack = []; this.redoStack = []; }
     if (this.song.id !== prevScore) { Seq.stop(); this.resetSelection(); }
     if (!this.track()) this.sel.track = (this.song.tracks[0] || {}).id;

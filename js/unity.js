@@ -34,7 +34,7 @@ const UnityExport = {
   async renderSting(song, pi, sr) {
     const pat = song.patterns[pi];
     const musical = Math.round(pat.bars * 16 * this.stepSeconds(song) * sr);
-    const buf = await renderBlocks(song, [pi], { tail: this.tailSeconds(song), sampleRate: sr, only: (t) => !t.mute, start: 0 });
+    const buf = await renderBlocks(song, [pi], { tail: this.tailSeconds(song), sampleRate: sr, only: (t, m) => !!m, start: 0 });
     // Trim trailing silence after the musical end.
     const chs = [0, 1].map((c) => buf.getChannelData(c));
     let end = chs[0].length;
@@ -89,7 +89,7 @@ const UnityExport = {
       let mix = null;
       for (const L of song.layers) {
         progress(`${song.name}: ${p.name} · ${L.name}`);
-        const r = await this.renderLoop(song, i, (t) => t.layer === L.id && !t.mute, sr);
+        const r = await this.renderLoop(song, i, (t, m) => !!m && m.layer === L.id, sr);
         if (!mix) mix = r.chs.map((d) => new Float32Array(d.length));
         r.chs.forEach((d, c) => { for (let n = 0; n < d.length; n++) mix[c][n] += d[n]; });
         const silent = this.peak(r.chs) < 1e-5;

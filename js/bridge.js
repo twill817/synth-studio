@@ -103,6 +103,13 @@ const Ref = {
     throw new Error(part.length ? `“${s}” matches more than one ${label}: ${part.map(nameOf).join(', ')}.` : `No ${label} called “${s}”. Available: ${names || 'none'}.`);
   },
   score(ref) { return Ref.pick(App.project.scores, ref, 'score') || App.song; },
+  /* A pattern, or with none given the open one (in another level: its first). */
+  patternOrOpen(song, ref) {
+    if (ref !== undefined && ref !== '') return Ref.pattern(song, ref);
+    const p = song === App.song ? App.pattern() : song.patterns[0];
+    if (!p) throw new Error(`“${song.name}” has no patterns yet.`);
+    return p;
+  },
   pattern(song, ref) {
     if (ref === undefined || ref === '') throw new Error('Which pattern? Give its name or letter.');
     const s = String(ref).trim();
@@ -189,13 +196,14 @@ const BridgeAPI = {
     return {
       name: s.name, key: MusicText.key(s), bpm: s.bpm, swing: s.swing,
       mix: s.mix ? 'custom for this level' : 'game style',
-      tracks: s.tracks.map((t) => ({
+      instruments: s.tracks.map((t) => ({
         name: t.name, role: (roleOf(t) || {}).name, sound: soundName(snd(t)), customForThisLevel: !!t.sound,
-        layer: (s.layers.find((l) => l.id === t.layer) || {}).name, muted: t.mute, volume: +t.vol.toFixed(2),
+        inTracks: s.patterns.filter((p) => partOf(p, t)).map((p) => p.name),
       })),
-      intensityLayers: s.layers.map((l, i) => ({ name: l.name, level: i === 0 ? 'always on' : i, tracks: s.tracks.filter((t) => t.layer === l.id).map((t) => t.name) })),
+      intensityLayers: s.layers.map((l, i) => ({ name: l.name, level: i === 0 ? 'always on' : i })),
       patterns: s.patterns.map((p, i) => ({
         letter: String.fromCharCode(65 + i), name: p.name, type: p.kind === 'sting' ? 'sting (plays once)' : 'segment (loops)', bars: p.bars,
+        instruments: partLanes(s, p).map((t) => { const x = partOf(p, t); return { name: t.name, layer: (s.layers.find((l) => l.id === x.layer) || {}).name, volume: +x.vol.toFixed(2), pan: +x.pan.toFixed(2), ...(x.mute ? { muted: true } : {}), ...(x.solo ? { solo: true } : {}) }; }),
         library: p.lib ? `linked to “${(Library.of(p) || {}).name}”${Library.alsoIn(p, s).length ? ` — also plays in ${Library.alsoIn(p, s).join(', ')}, so edits change it there too` : ''}`
           : p.from && Library.find(p.from) ? `this level's own version of “${Library.find(p.from).name}”` : 'this level’s own pattern (not linked)',
         entrySting: p.entrySting ? (s.patterns.find((q) => q.id === p.entrySting) || {}).name || null : null,

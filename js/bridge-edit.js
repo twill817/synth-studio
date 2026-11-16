@@ -124,17 +124,19 @@ const Edit = {
     App.changed();
     return result;
   },
-  synthTrack(s, ref) {
+  /* Writing into an instrument a pattern doesn't have yet adds it to the pattern. */
+  joinPattern(s, p, t) { if (p && p.parts && !partOf(p, t)) { p.parts.push(newPart(s, t, p)); ensurePattern(p, s); } return t; },
+  synthTrack(s, ref, p) {
     const t = Ref.track(s, ref);
-    if (!t) throw new Error('Which track? Give its name.');
-    if (t.type !== 'synth') throw new Error(`“${t.name}” is a drum track — use write_drums.`);
-    return t;
+    if (!t) throw new Error('Which instrument? Give its name.');
+    if (t.type !== 'synth') throw new Error(`“${t.name}” is a drum instrument — use write_drums.`);
+    return this.joinPattern(s, p, t);
   },
-  drumTrack(s, ref) {
-    const t = ref ? Ref.track(s, ref) : s.tracks.find((x) => x.type === 'drum');
-    if (!t) throw new Error(`“${s.name}” has no drum track. Add one with add_track (a drum role).`);
-    if (t.type !== 'drum') throw new Error(`“${t.name}” isn't a drum track.`);
-    return t;
+  drumTrack(s, ref, p) {
+    const t = ref ? Ref.track(s, ref) : partLanes(s, p).find((x) => x.type === 'drum') || s.tracks.find((x) => x.type === 'drum');
+    if (!t) throw new Error(`“${s.name}” has no drum instrument. Add one with add_track (a drum role).`);
+    if (t.type !== 'drum') throw new Error(`“${t.name}” isn't a drum instrument.`);
+    return this.joinPattern(s, p, t);
   },
   /* Which tracks, in which scores, a role change reaches — and which keep their own sound. */
   roleImpact(role) {
@@ -159,7 +161,7 @@ Object.assign(BridgeAPI, {
   /* ===== composing ===== */
   writeNotes({ score, pattern, track, notes, mode = 'replace' }) {
     return Edit.run(score, (s) => {
-      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track);
+      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track, p);
       const parsed = MusicParse.notes(notes);
       const len = p.bars * 16;
       const kept = parsed.filter((n) => n.s < len).map((n) => ({ ...n, l: Math.min(n.l, len - n.s) }));
@@ -176,7 +178,7 @@ Object.assign(BridgeAPI, {
 
   writeDrums({ score, pattern, track, drums, preset, mode = 'replace' }) {
     return Edit.run(score, (s) => {
-      const p = Ref.pattern(s, pattern), t = Edit.drumTrack(s, track);
+      const p = Ref.pattern(s, pattern), t = Edit.drumTrack(s, track, p);
       const steps = p.bars * 16;
       ensurePattern(p, s);
       const lines = [];
@@ -199,7 +201,7 @@ Object.assign(BridgeAPI, {
 
   generatePart({ score, pattern, track, generator, progression }) {
     return Edit.run(score, (s) => {
-      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track);
+      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track, p);
       const g = Object.keys(LOOP_GENERATORS).find((k) => k.toLowerCase() === String(generator).toLowerCase());
       if (!g) throw new Error(`No generator “${generator}”. Generators: ${Object.keys(LOOP_GENERATORS).join(', ')}.`);
       const prog = progression ? Object.keys(PROGRESSIONS).find((k) => k.toLowerCase().replace(/\s/g, '') === String(progression).toLowerCase().replace(/\s/g, '')) : 'Prog 1–5–6–4';
@@ -214,7 +216,7 @@ Object.assign(BridgeAPI, {
 
   transformNotes({ score, pattern, track, transpose = 0, octave = 0, quantize, velocity }) {
     return Edit.run(score, (s) => {
-      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track);
+      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track, p);
       const ns = p.notes[t.id] || [];
       if (!ns.length) throw new Error(`${p.name} › ${t.name} has no notes.`);
       const q = quantize ? MusicParse.dur(quantize) : 0;
@@ -232,7 +234,7 @@ Object.assign(BridgeAPI, {
 
   insertTheme({ score, pattern, track, theme, fit = true, octave = 0, speed = 1, mode = 'replace' }) {
     return Edit.run(score, (s) => {
-      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track);
+      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track, p);
       const th = Ref.pick(Library.melodies(), theme, 'theme (library melody)');
       if (!th) throw new Error('Which theme?');
       if (![0.5, 1, 2].includes(speed)) throw new Error('speed must be 0.5 (double speed), 1, or 2 (half speed).');
@@ -246,7 +248,7 @@ Object.assign(BridgeAPI, {
 
   saveTheme({ score, pattern, track, name }) {
     return Edit.run(score, (s) => {
-      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track);
+      const p = Ref.pattern(s, pattern), t = Edit.synthTrack(s, track, p);
       const ns = p.notes[t.id] || [];
       if (!ns.length) throw new Error(`${p.name} › ${t.name} has no notes to save.`);
       if (Library.items().some((x) => x.name.toLowerCase() === String(name).toLowerCase())) throw new Error(`The library already has an item called “${name}”.`);
@@ -507,56 +509,62 @@ Object.assign(BridgeAPI, {
           const keep = old.find((l) => l.name.toLowerCase() === String(n).toLowerCase()) || (i === 0 ? old[0] : null);
           return { id: keep ? keep.id : uid(), name: n };
         });
-        s.tracks.forEach((t) => { if (!s.layers.some((l) => l.id === t.layer)) t.layer = s.layers[0].id; });
+        s.patterns.forEach((p) => (p.parts || []).forEach((x) => { if (!s.layers.some((l) => l.id === x.layer)) x.layer = s.layers[0].id; }));
         did.push(`layers (bottom → top): ${s.layers.map((l) => l.name).join(' → ')}`);
       }
+      // assign: the instrument's layer in every track (pattern) of the level that has it
       if (assign) Object.entries(assign).forEach(([tr, ln]) => {
         const t = Ref.track(s, tr), L = Ref.pick(s.layers, ln, 'layer');
-        t.layer = L.id; did.push(`${t.name} → ${L.name}`);
+        s.patterns.forEach((p) => { const x = partOf(p, t); if (x) x.layer = L.id; });
+        did.push(`${t.name} → ${L.name}`);
       });
       if (!did.length) throw new Error('Give layers and/or assign.');
       Engine.layers();
-      return `${s.name}: ${did.join('; ')}. Layer contents: ${s.layers.map((l) => `${l.name} [${s.tracks.filter((t) => t.layer === l.id).map((t) => t.name).join(', ') || 'empty'}]`).join(', ')}.`;
+      const inLayer = (l) => s.tracks.filter((t) => s.patterns.some((p) => (partOf(p, t) || {}).layer === l.id)).map((t) => t.name);
+      return `${s.name}: ${did.join('; ')}. Layer contents: ${s.layers.map((l) => `${l.name} [${inLayer(l).join(', ') || 'empty'}]`).join(', ')}.`;
     }, { view: 'mixer' });
   },
 
-  addTrack({ score, role, name, layer }) {
+  addTrack({ score, pattern, role, name, layer }) {
     return Edit.run(score, (s) => {
-      const r = Ref.pick(App.style.roles, role, 'role in the game style');
-      if (!r) throw new Error('Which role?');
-      const n = s.tracks.filter((x) => x.role === r.id).length;
-      const t = makeTrack(r, name || (n ? `${r.name} ${n + 1}` : r.name));
-      if (layer) t.layer = Ref.pick(s.layers, layer, 'layer').id;
-      s.tracks.push(t);
-      ensureAll(s);
-      const src = copyPartsFromOriginal(s, t);
-      Edit._show = { track: t };
-      return `Added track “${t.name}” (instrument ${r.name}, ${soundName(r)}) to ${s.name}.` + (src ? ` It plays the same ${t.type === 'drum' ? 'beats' : 'notes'} as “${src.name}” (copied, since ${r.name} was duplicated from its instrument).` : '');
+      const r = Ref.pick(App.style.roles, role, 'instrument');
+      if (!r) throw new Error('Which instrument (role)?');
+      const p = Ref.patternOrOpen(s, pattern);
+      const t = addInstrumentToPattern(s, p, r, name);
+      if (layer) partOf(p, t).layer = Ref.pick(s.layers, layer, 'layer').id;
+      const src = copyPartsFromOriginal(s, p, t);
+      Edit._show = { track: t, pattern: p };
+      return `Added “${t.name}” (instrument ${r.name}, ${soundName(r)}) to “${p.name}” in ${s.name}.` + (src ? ` It plays the same ${t.type === 'drum' ? 'beats' : 'notes'} as “${src.name}” there (copied, since ${r.name} was duplicated from its instrument).` : '');
     }, Edit.consumeShow());
   },
 
-  setTrack({ score, track, name, mute, solo, layer, settings }) {
+  setTrack({ score, pattern, track, name, mute, solo, layer, settings }) {
     return Edit.run(score, (s) => {
       const t = Ref.track(s, track), did = [];
       if (name) { t.name = name; did.push(`renamed to ${name}`); }
-      if (mute !== undefined) { t.mute = !!mute; did.push(mute ? 'muted' : 'unmuted'); }
-      if (solo !== undefined) { t.solo = !!solo; did.push(solo ? 'soloed' : 'unsoloed'); }
-      if (layer) { t.layer = Ref.pick(s.layers, layer, 'layer').id; did.push(`layer ${layer}`); }
-      if (settings) did.push(...applyParams(t, settings, TRACK_PARAMS, 'track'));
+      if (mute !== undefined || solo !== undefined || layer || settings) {
+        const p = Ref.patternOrOpen(s, pattern), x = partOf(p, t);
+        if (!x) throw new Error(`“${t.name}” isn't in “${p.name}”. Add it with add_track (pattern “${p.name}”).`);
+        if (mute !== undefined) { x.mute = !!mute; did.push(mute ? 'muted' : 'unmuted'); }
+        if (solo !== undefined) { x.solo = !!solo; did.push(solo ? 'soloed' : 'unsoloed'); }
+        if (layer) { x.layer = Ref.pick(s.layers, layer, 'layer').id; did.push(`layer ${layer}`); }
+        if (settings) did.push(...applyParams(x, settings, TRACK_PARAMS, 'mix'));
+        did.push(`in “${p.name}”`);
+        Edit._show = { track: t, pattern: p };
+      }
       if (!did.length) throw new Error('Nothing to change.');
       Engine.tracksAll();
       return `${s.name} › ${t.name}: ${did.join(', ')}.`;
-    }, { view: 'mixer' });
+    }, Edit.consumeShow('mixer'));
   },
 
-  removeTrack({ score, track }) {
+  removeTrack({ score, pattern, track }) {
     return Edit.run(score, (s) => {
-      if (s.tracks.length <= 1) throw new Error('A score needs at least one track.');
-      const t = Ref.track(s, track);
-      s.tracks = s.tracks.filter((x) => x !== t);
-      s.patterns.forEach((p) => { delete p.drums[t.id]; delete p.notes[t.id]; delete p.origins[t.id]; });
-      if (App.sel.track === t.id) App.sel.track = s.tracks[0].id;
-      return `Removed track “${t.name}” and its notes from ${s.name}.`;
+      const p = Ref.patternOrOpen(s, pattern), t = Ref.track(s, track);
+      if (!partOf(p, t)) throw new Error(`“${t.name}” isn't in “${p.name}”.`);
+      if (p.parts.length <= 1) throw new Error('A track needs at least one instrument.');
+      const gone = removeInstrumentFromPattern(s, p, t);
+      return `Removed “${t.name}” and its notes from “${p.name}” in ${s.name}.` + (gone.length ? ` No other track in the level used it, so it left the level too.` : '');
     });
   },
 

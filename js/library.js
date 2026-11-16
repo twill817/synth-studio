@@ -1,14 +1,16 @@
 /* The game's library: every segment, sting and melody, shared by all levels.
 
    item = { id, name, kind: 'segment' | 'sting', bars, key, scale,      // written in key/scale
-            parts:   { [partKey]: { notes: [{s,l,p,v}] } | { drums: { voiceId: steps[] } } },
+            order:   [partKey],                                          // its instruments, in order (step 6b)
+            parts:   { [partKey]: ({ notes: [{s,l,p,v}] } | { drums: { voiceId: steps[] } }) & { mix } },
             origins: { [partKey]: { theme, oct, speed, fit } } }         // melody links, per part
+   mix = { vol, pan, drive, tone, rev, dly, layer (by name), mute, solo } — the part's mix in the track.
         | { id, name, kind: 'melody', key, scale, bars, notes, role }      // a game theme
 
    track.part  — which part of a library pattern a track plays: its role id, or role:2, role:3 …
                  for a second or third track on the same role.
-   level pattern (score.patterns[i]) keeps today's shape (notes/drums by track id, so playback,
-   editors and export are unchanged), plus:
+   level pattern (score.patterns[i]) keeps notes/drums by lane id and lists its instruments in
+   p.parts (see app.js), plus:
      lib     — library item id it is linked to, or null for a level's own version
      from    — for an own version: the item it was split from (so it can go back)
      libSig  — fingerprints of the copy when last synced ({ m: bars+kind, parts: {partKey: …} });
@@ -51,19 +53,42 @@ const Library = {
   offset(song, item) { let d = (((song.key - item.key) % 12) + 12) % 12; return d > 6 ? d - 12 : d; },
   shiftNotes(ns, d) { return ns.map((n) => ({ ...n, p: clamp(n.p + d, 0, 127) })); },
 
-  /* A level pattern's content by part, in the level's key. */
+  /* A part's mix as the library keeps it: the layer by name, so it means the same in every level. */
+  mixOut(song, x) {
+    const m = {};
+    INST_MIX_KEYS.forEach((k) => (m[k] = x[k]));
+    m.layer = (song.layers.find((l) => l.id === x.layer) || song.layers[0]).name;
+    m.mute = !!x.mute; m.solo = !!x.solo;
+    return m;
+  },
+  mixIn(song, m, t) {
+    const x = newPart(song, t);
+    if (m) {
+      INST_MIX_KEYS.forEach((k) => { if (typeof m[k] === 'number') x[k] = m[k]; });
+      const L = song.layers.find((l) => l.name.toLowerCase() === String(m.layer || '').toLowerCase());
+      x.layer = L ? L.id : song.layers[0].id;
+      x.mute = !!m.mute; x.solo = !!m.solo;
+    }
+    x.t = t.id;
+    return x;
+  },
+  /* A level pattern's content by part (its instruments only), in the level's key. */
   capture(p, song) {
-    const steps = p.bars * 16, parts = {}, origins = {};
-    song.tracks.forEach((t) => {
+    const steps = p.bars * 16, parts = {}, origins = {}, order = [];
+    (p.parts || []).forEach((x) => {
+      const t = song.tracks.find((y) => y.id === x.t);
+      if (!t) return;
       if (t.type === 'drum') {
         const g = p.drums[t.id] || {}, d = {};
         DRUM_VOICES.forEach((v) => { d[v.id] = (g[v.id] || []).slice(0, steps); while (d[v.id].length < steps) d[v.id].push(0); });
         parts[t.part] = { drums: d };
       } else parts[t.part] = { notes: (p.notes[t.id] || []).map((n) => ({ s: n.s, l: n.l, p: n.p, v: n.v })) };
+      parts[t.part].mix = this.mixOut(song, x);
+      order.push(t.part);
       const o = p.origins && p.origins[t.id];
       if (o) origins[t.part] = { ...o };
     });
-    return { bars: p.bars, kind: this.kindOf(p), parts, origins };
+    return { bars: p.bars, kind: this.kindOf(p), parts, origins, order };
   },
   /* Short fingerprint of anything JSON-able (FNV-1a), so undo snapshots stay small. */
   hash(o) {
@@ -75,35 +100,53 @@ const Library = {
   sig(c) {
     const parts = {};
     Object.keys(c.parts).forEach((k) => (parts[k] = this.hash([c.parts[k], c.origins[k] || null])));
-    return { m: this.hash([c.bars, c.kind]), parts };
+    return { m: this.hash([c.bars, c.kind, c.order || null]), parts };
   },
   same(a, b) { return JSON.stringify(a) === JSON.stringify(b); },
 
+  /* The item's instruments, in order. */
+  orderOf(item) { return item.order || Object.keys(item.parts || {}); },
+  /* The level's lane for a part key; a level without that instrument gets a lane for it. */
+  laneFor(song, key) {
+    let t = song.tracks.find((x) => x.part === key);
+    if (t) return t;
+    const role = App.project.style.roles.find((r) => r.id === key.split(':')[0]);
+    if (!role) return null;
+    t = makeTrack(role);
+    t.part = key;
+    song.tracks.push(t);
+    return t;
+  },
   /* What a level's copy of an item should be, by part, in the level's key. */
   materialize(item, song) {
-    const d = this.offset(song, item), steps = item.bars * 16, parts = {}, origins = {};
-    song.tracks.forEach((t) => {
-      const src = item.parts[t.part];
+    const d = this.offset(song, item), steps = item.bars * 16, parts = {}, origins = {}, order = [];
+    this.orderOf(item).forEach((k) => {
+      const src = item.parts[k], t = this.laneFor(song, k);
+      if (!t || !src) return;
       if (t.type === 'drum') {
-        const g = (src && src.drums) || {}, out = {};
+        const g = src.drums || {}, out = {};
         DRUM_VOICES.forEach((v) => { out[v.id] = (g[v.id] || []).slice(0, steps); while (out[v.id].length < steps) out[v.id].push(0); });
-        parts[t.part] = { drums: out };
-      } else parts[t.part] = { notes: this.shiftNotes((src && src.notes) || [], d) };
-      if (item.origins && item.origins[t.part]) origins[t.part] = { ...item.origins[t.part] };
+        parts[k] = { drums: out };
+      } else parts[k] = { notes: this.shiftNotes(src.notes || [], d) };
+      parts[k].mix = this.mixOut(song, this.mixIn(song, src.mix, t));
+      order.push(k);
+      if (item.origins && item.origins[k]) origins[k] = { ...item.origins[k] };
     });
-    return { bars: item.bars, kind: item.kind, parts, origins };
+    return { bars: item.bars, kind: item.kind, parts, origins, order };
   },
 
   /* Write captured level content into a level pattern. */
   apply(p, song, c) {
     p.bars = c.bars;
     p.kind = c.kind === 'sting' ? 'sting' : 'loop';
-    p.drums = {}; p.notes = {}; p.origins = {};
-    song.tracks.forEach((t) => {
-      const part = c.parts[t.part];
-      if (t.type === 'drum') p.drums[t.id] = clone((part && part.drums) || {});
-      else p.notes[t.id] = clone((part && part.notes) || []);
-      if (c.origins[t.part]) p.origins[t.id] = { ...c.origins[t.part] };
+    p.drums = {}; p.notes = {}; p.origins = {}; p.parts = [];
+    (c.order || Object.keys(c.parts)).forEach((k) => {
+      const part = c.parts[k], t = this.laneFor(song, k);
+      if (!t || !part) return;
+      if (t.type === 'drum') p.drums[t.id] = clone(part.drums || {});
+      else p.notes[t.id] = clone(part.notes || []);
+      if (c.origins[k]) p.origins[t.id] = { ...c.origins[k] };
+      p.parts.push(this.mixIn(song, part.mix, t));
     });
     ensurePattern(p, song);
   },
@@ -111,11 +154,15 @@ const Library = {
   /* Write the edited parts of a level copy back into its item. Other parts stay as they are. */
   store(item, c, song, partKeys, meta) {
     const d = -this.offset(song, item);
-    if (meta) { item.bars = c.bars; item.kind = c.kind; }
+    if (meta) {
+      item.bars = c.bars; item.kind = c.kind; item.order = c.order.slice();
+      Object.keys(item.parts).forEach((k) => { if (!c.order.includes(k)) { delete item.parts[k]; if (item.origins) delete item.origins[k]; } });
+    }
     item.origins = item.origins || {};
     partKeys.forEach((k) => {
       const part = c.parts[k];
       item.parts[k] = part.drums ? { drums: clone(part.drums) } : { notes: this.shiftNotes(part.notes, d) };
+      item.parts[k].mix = clone(part.mix);
       if (c.origins[k]) item.origins[k] = { ...c.origins[k] }; else delete item.origins[k];
     });
   },
@@ -123,7 +170,7 @@ const Library = {
   /* A new library item from a level pattern (written in the level's key). */
   create(p, song, name) {
     const c = this.capture(p, song);
-    const item = { id: uid(), name: this.uniqueName(name || p.name), kind: c.kind, bars: c.bars, key: song.key, scale: song.scale, parts: {}, origins: {} };
+    const item = { id: uid(), name: this.uniqueName(name || p.name), kind: c.kind, bars: c.bars, key: song.key, scale: song.scale, order: c.order.slice(), parts: {}, origins: {} };
     Object.entries(c.parts).forEach(([k, part]) => (item.parts[k] = clone(part)));
     item.origins = clone(c.origins);
     this.items().push(item);
@@ -165,8 +212,9 @@ const Library = {
     P.scores.forEach((s) => s.patterns.forEach((p) => {
       if (!p.lib || !p.libSig || p.libSig === 'pull') return;
       const c = this.capture(p, s), sg = this.sig(c), old = p.libSig;
-      const edited = Object.keys(sg.parts).filter((k) => old.parts[k] !== undefined && old.parts[k] !== sg.parts[k]);
       const meta = sg.m !== old.m;
+      // edited parts; when the instruments changed (meta), new ones are edits too
+      const edited = Object.keys(sg.parts).filter((k) => (old.parts[k] !== undefined || meta) && old.parts[k] !== sg.parts[k]);
       if (edited.length || meta) this.store(this.of(p), c, s, edited, meta);
     }));
     // 3. linked copies that differ from their item are rewritten
@@ -180,6 +228,8 @@ const Library = {
       }
       p.libSig = this.sig(this.capture(p, s));
     }));
+    // instruments a linked change took out of every track of a level leave that level
+    P.scores.forEach((s) => pruneLanes(s));
     // a sting can't be entered through, and can't have an entry sting
     P.scores.forEach((s) => s.patterns.forEach((p) => {
       if (p.kind === 'sting') p.entrySting = null;
@@ -246,5 +296,39 @@ const Library = {
       try { const item = Library.create(pt, s, name); pt.lib = item.id; pt.from = null; pt.libSig = Library.sig(Library.capture(pt, s)); }
       finally { App.project = prev; }
     }));
+    this.migrateParts(p);
+  },
+  /* Step 6b: library items learn their instruments (order) and each part's mix from the levels that
+     link them. A linked copy whose instruments or mix disagree with the item becomes an own version,
+     so nothing changes in sound. */
+  migrateParts(p) {
+    const prev = App.project; App.project = p;
+    try {
+      let split = 0;
+      p.library.forEach((item) => {
+        if (item.kind === 'melody' || item.order) return;
+        const uses = [];
+        p.scores.forEach((s) => s.patterns.forEach((pt) => { if (pt.lib === item.id) uses.push({ s, pt }); }));
+        const first = uses[0];
+        if (first) {
+          this.ensureParts(first.s);
+          const c = this.capture(first.pt, first.s);
+          item.order = c.order.slice();
+          Object.keys(item.parts).forEach((k) => { if (!item.order.includes(k)) delete item.parts[k]; });
+          item.order.forEach((k) => { if (item.parts[k]) item.parts[k].mix = clone(c.parts[k].mix); });
+          item.order = item.order.filter((k) => item.parts[k]);
+        } else {
+          item.order = Object.keys(item.parts).filter((k) => { const x = item.parts[k]; return x.drums ? Object.values(x.drums).some((r) => r.some((v) => v > 0)) : (x.notes || []).length; });
+          if (!item.order.length) item.order = Object.keys(item.parts);
+        }
+        uses.forEach(({ s, pt }) => {
+          this.ensureParts(s);
+          const mine = this.capture(pt, s), want = this.materialize(item, s);
+          if (!this.same(this.sig(mine), this.sig(want))) { this.ownVersion(pt); split++; }
+          else pt.libSig = this.sig(mine);
+        });
+      });
+      if (split) p._partsSplit = split;
+    } finally { App.project = prev; }
   },
 };

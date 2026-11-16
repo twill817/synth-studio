@@ -280,18 +280,19 @@ const UI = {
   initSidebar() {
     $('#btnAddTrack').onclick = () => {
       const [kind, val] = $('#addTrackPreset').value.split(':');
+      const p = App.pattern();
+      if (!p) return toast('Make a segment or sting first (the map’s + Segment)');
       App.pushUndo();
       let role = App.role(val);
       if (kind === 'new') { role = makeRole(val); App.style.roles.push(role); }
-      const n = App.song.tracks.filter((x) => x.role === role.id).length;
-      const t = makeTrack(role, n ? `${role.name} ${n + 1}` : role.name);
-      App.song.tracks.push(t); ensureAll(); App.sel.track = t.id; App.sel.role = null;
-      const src = copyPartsFromOriginal(App.song, t);
+      const t = addInstrumentToPattern(App.song, p, role);
+      App.sel.track = t.id; App.sel.role = null;
+      const src = copyPartsFromOriginal(App.song, p, t);
       if (t.type === 'drum') this.beatTrackId = t.id;
       Engine.sync(); this.renderAll(); App.changed();
       this.followTrackView(t);
       if (kind === 'new') toast(`Added the instrument “${role.name}” to the Library`);
-      else if (src) toast(`“${t.name}” plays the same ${t.type === 'drum' ? 'beats' : 'notes'} as “${src.name}” in every pattern — change them freely`, 3500);
+      else if (src) toast(`“${t.name}” plays the same ${t.type === 'drum' ? 'beats' : 'notes'} as “${src.name}” in “${p.name}” — change them freely`, 3500);
     };
     this.initScores();
     const tl = $('#trackList');
@@ -301,20 +302,20 @@ const UI = {
       const t = App.track(it.dataset.id);
       const act = e.target.dataset.act;
       if (act === 'rename') { this.selectTrack(t.id); this.renameTrack(t.id); return; }
-      if (act === 'm' || act === 's') {
+      const part = partOf(App.pattern(), t);
+      if ((act === 'm' || act === 's') && part) {
         App.pushUndo();
-        t[act === 'm' ? 'mute' : 'solo'] = !t[act === 'm' ? 'mute' : 'solo'];
+        part[act === 'm' ? 'mute' : 'solo'] = !part[act === 'm' ? 'mute' : 'solo'];
         Engine.tracksAll(); this.renderTracks(); this.renderMixer(); this.renderRollBar(); App.changed();
         return;
       }
       if (act === 'del') {
-        if (App.song.tracks.length <= 1) return toast('A level needs at least one track');
+        const p = App.pattern();
+        if (p.parts.length <= 1) return toast('A track needs at least one instrument');
         App.pushUndo();
-        App.song.tracks = App.song.tracks.filter((x) => x !== t);
-        App.song.patterns.forEach((p) => { delete p.drums[t.id]; delete p.notes[t.id]; });
-        if (App.sel.track === t.id) App.sel.track = App.song.tracks[0].id;
+        removeInstrumentFromPattern(App.song, p, t);
         Engine.sync(); this.renderAll(); App.changed();
-        undoToast(`Deleted track "${t.name}"`);
+        undoToast(`Removed “${t.name}” from “${p.name}”`);
         return;
       }
       this.selectTrack(t.id);
@@ -443,11 +444,15 @@ const UI = {
     Roll.sel.clear();
     $$('#mapBody [data-i]').forEach((e) => e.classList.toggle('sel', +e.dataset.i === i));
     $$('.barsSel').forEach((s) => (s.value = App.pattern().bars));
+    Engine.tracksAll();
+    this.renderTracks(); this.renderMixer(); this.renderInst(); this.renderKeyboard();
     this.renderBeat(); this.renderRollBar(); this.renderLibBar(); Roll.draw();
   },
   selectPattern(i) {
     App.sel.pattern = i;
     Roll.sel.clear();
+    Engine.tracksAll();
+    this.renderTracks(); this.renderMixer(); this.renderInst(); this.renderKeyboard();
     this.renderPatterns(); this.renderBeat(); this.renderRollBar(); this.renderArrange(); this.renderAdaptive(); Roll.draw();
   },
   /* ---------- scores (one per level / cue) ---------- */
@@ -521,16 +526,21 @@ const UI = {
   },
 
   renderTracks() {
-    $('#trackList').innerHTML = App.song.tracks.map((t) => `
-      <div class="track-item ${t.id === App.sel.track && !App.sel.role ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — instrument: ${esc((roleOf(t) || {}).name || '?')}${App.song.layers.length > 1 ? `, intensity layer: ${esc((App.song.layers.find((l) => l.id === t.layer) || {}).name || '?')}` : ''}, sound: ${esc(soundName(snd(t)))}${t.sound ? ' (customized for this level)' : ''} · double-click name to rename">
+    const p = App.pattern(), sel = App.track();
+    $('#trackHead').textContent = p ? `Instruments in “${p.name}”` : 'Instruments';
+    $('#trackList').innerHTML = partLanes(App.song, p).map((t) => {
+      const x = partOf(p, t);
+      return `
+      <div class="track-item ${sel && t.id === sel.id && !App.sel.role ? 'sel' : ''}" data-id="${t.id}" title="${esc(t.name)} — instrument: ${esc((roleOf(t) || {}).name || '?')}${App.song.layers.length > 1 ? `, intensity layer here: ${esc((App.song.layers.find((l) => l.id === x.layer) || {}).name || '?')}` : ''}, sound: ${esc(soundName(snd(t)))}${t.sound ? ' (customized for this level)' : ''} · double-click name to rename">
         <span class="dot" style="background:${t.color}"></span>
         <span class="name">${esc(t.name)}</span>
         ${t.sound ? '<span class="flavor" title="Custom sound for this level">✦</span>' : ''}
-        <button class="edit" data-act="rename" title="Rename track">✎</button>
-        <button class="ms m ${t.mute ? 'on' : ''}" data-act="m" title="Mute">M</button>
-        <button class="ms s ${t.solo ? 'on' : ''}" data-act="s" title="Solo">S</button>
-        <button class="x" data-act="del" title="Delete track">✕</button>
-      </div>`).join('');
+        <button class="edit" data-act="rename" title="Rename">✎</button>
+        <button class="ms m ${x.mute ? 'on' : ''}" data-act="m" title="Mute in this track">M</button>
+        <button class="ms s ${x.solo ? 'on' : ''}" data-act="s" title="Solo in this track">S</button>
+        <button class="x" data-act="del" title="Remove from this track (its notes here go too)">✕</button>
+      </div>`;
+    }).join('') || '<p class="muted">No instruments yet — add one below.</p>';
   },
   libMark(p) {
     if (p.lib && Library.of(p)) {
@@ -543,8 +553,9 @@ const UI = {
   /* ---------- beat grid ---------- */
   drumTrack() {
     const s = App.song;
-    let t = s.tracks.find((x) => x.id === this.beatTrackId && x.type === 'drum');
-    if (!t) t = s.tracks.find((x) => x.type === 'drum');
+    const lanes = partLanes(s, App.pattern());
+    let t = lanes.find((x) => x.id === this.beatTrackId && x.type === 'drum');
+    if (!t) t = lanes.find((x) => x.type === 'drum');
     this.beatTrackId = t && t.id;
     return t;
   },
@@ -650,13 +661,13 @@ const UI = {
   },
   renderBeat() {
     const t = this.drumTrack();
-    const drums = App.song.tracks.filter((x) => x.type === 'drum');
+    const drums = partLanes(App.song, App.pattern()).filter((x) => x.type === 'drum');
     $('#beatTrack').innerHTML = drums.map((d) => `<option value="${d.id}" ${t && d.id === t.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
     const grid = $('#beatGrid');
     this.beatCols = [];
     $('#beatTrack').closest('label').hidden = drums.length < 2;
     $('#beatScope').hidden = !t;
-    if (!t) { grid.innerHTML = '<p class="muted">This level has no drum track. Add one from the sidebar (+ Track ▸ a drum instrument).</p>'; return; }
+    if (!t) { grid.innerHTML = '<p class="muted">This track has no drums. Add a drum instrument from the sidebar (+ Instrument).</p>'; return; }
     const ds = snd(t);
     $('#beatKit').value = ds.kit;
     $('#beatScope').textContent = t.sound ? 'Customized for this level' : `From the library · ${roleOf(t).name}`;
@@ -708,8 +719,9 @@ const UI = {
   /* ---------- piano roll toolbar ---------- */
   renderRollBar() {
     // Track chips (the layered roll): write into one track, show or hide the others.
-    const synths = App.song.tracks.filter((t) => t.type === 'synth');
-    const drums = App.song.tracks.filter((t) => t.type === 'drum');
+    const lanes = partLanes(App.song, App.pattern()), pat = App.pattern();
+    const synths = lanes.filter((t) => t.type === 'synth');
+    const drums = lanes.filter((t) => t.type === 'drum');
     const cur = Roll.track(), hidden = Roll.hiddenSet();
     const chip = (id, name, color, state, muted, nameTip, eyeTip) =>
       `<span class="rchip ${state}${muted ? ' muted' : ''}" data-id="${id}" style="--c:${color}">` +
@@ -717,14 +729,15 @@ const UI = {
       (eyeTip ? `<button class="rc-eye" title="${esc(eyeTip)}" aria-label="${esc(eyeTip)}">${state === 'hidden' ? '○' : '◉'}</button>` : '') + '</span>';
     let h = synths.map((t) => {
       const writing = cur && t.id === cur.id, off = !writing && hidden.has(t.id);
-      return chip(t.id, t.name, t.color, writing ? 'writing' : off ? 'hidden' : 'shown', t.mute,
-        (writing ? `Writing into ${t.name}` : `Write into ${t.name}`) + (t.mute ? ' (muted)' : ''),
+      const muted = (partOf(pat, t) || {}).mute;
+      return chip(t.id, t.name, t.color, writing ? 'writing' : off ? 'hidden' : 'shown', muted,
+        (writing ? `Writing into ${t.name}` : `Write into ${t.name}`) + (muted ? ' (muted)' : ''),
         writing ? '' : off ? `Show ${t.name}` : `Hide ${t.name}`);
     }).join('');
     if (drums.length) h += chip('drums', 'Drums', drums[0].color, hidden.has('drums') ? 'hidden' : 'shown', false,
       hidden.has('drums') ? 'Show the drum strip above the roll' : 'Hide the drum strip', '');
     if (synths.length > 1) h += '<button class="rc-all" data-all="show" title="Show every track">All</button><button class="rc-all" data-all="hide" title="Hide every track except the one you write into">None</button>';
-    $('#rollChips').innerHTML = h || '<span class="muted">No instrument tracks — add one from the sidebar</span>';
+    $('#rollChips').innerHTML = h || '<span class="muted">No instruments with notes in this track — add one from the sidebar (+ Instrument)</span>';
   },
 
   /* ---------- playthrough: a level's patterns in a fixed order, for plain audio/MIDI export ----------
@@ -804,8 +817,8 @@ const UI = {
         const L = s.layers.find((l) => l.id === b.dataset.id);
         App.pushUndo();
         s.layers = s.layers.filter((l) => l !== L);
-        s.tracks.forEach((t) => { if (t.layer === L.id) t.layer = s.layers[0].id; });
-        undoToast(`Removed layer “${L.name}” — its tracks moved to ${s.layers[0].name}`);
+        s.patterns.forEach((p) => (p.parts || []).forEach((x) => { if (x.layer === L.id) x.layer = s.layers[0].id; }));
+        undoToast(`Removed layer “${L.name}” — its instruments moved to ${s.layers[0].name}`);
       } else if (act === 'renameLayer') {
         const L = s.layers.find((l) => l.id === b.dataset.id);
         return inlineRename($(`.layer-row[data-id="${L.id}"] .name`), L.name, (v) => {
@@ -821,7 +834,8 @@ const UI = {
       const id = e.target.dataset.tlayer;
       if (!id) return;
       e.stopPropagation();
-      App.track(id).layer = e.target.value;
+      const x = partOf(App.pattern(), id);
+      if (x) x.layer = e.target.value;
       Engine.layers(); App.changed();
       this.renderLayers(); this.renderTracks();
     }, true);
@@ -830,13 +844,13 @@ const UI = {
     const s = App.song, lp = $('#layerPanel');
     if (!lp) return;
     lp.innerHTML = `<div class="layer-head"><span class="cap">Intensity layers</span>
-        <span class="muted">The first always plays; each one above fades in as intensity rises (Simulate, or SetIntensity in the game). Each becomes its own stem in Unity. Pick a track's layer on its strip below.</span></div>
+        <span class="muted">The first always plays; each one above fades in as intensity rises (Simulate, or SetIntensity in the game). Each becomes its own stem in Unity. Pick each instrument's layer (in the open track) on its strip below.</span></div>
       <div class="layer-list">${s.layers.map((l, i) => {
-        const ts = s.tracks.filter((t) => t.layer === l.id);
+        const ts = partLanes(s, App.pattern()).filter((t) => partOf(App.pattern(), t).layer === l.id);
         return `<div class="layer-row" data-id="${l.id}">
           <span class="lvl-idx">${i === 0 ? 'always on' : 'level ' + i}</span>
           <span class="name">${esc(l.name)}</span><button class="edit" data-act="renameLayer" data-id="${l.id}" title="Rename layer">✎</button>
-          <span class="chips">${ts.map((t) => `<span class="chip" style="--c:${t.color}">${esc(t.name)}</span>`).join('') || '<span class="muted">no tracks</span>'}</span>
+          <span class="chips">${ts.map((t) => `<span class="chip" style="--c:${t.color}">${esc(t.name)}</span>`).join('') || '<span class="muted">nothing in this track</span>'}</span>
           ${i > 0 ? `<button class="x" data-act="delLayer" data-id="${l.id}" title="Remove layer">✕</button>` : '<span></span>'}
         </div>`;
       }).join('')}</div><button data-act="addLayer">+ Layer</button>`;
@@ -849,8 +863,8 @@ const UI = {
     wire(mx, (el) => {
       const strip = el.closest('.strip');
       if (strip.dataset.id === 'master') return { obj: App.song.mix || App.style.mix, after: () => Engine.master() };
-      const t = App.track(strip.dataset.id);
-      return { obj: t, after: () => Engine.track(t) };
+      const t = App.track(strip.dataset.id), x = partOf(App.pattern(), t);
+      return x && { obj: x, after: () => Engine.track(t) };
     });
     mx.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-act]');
@@ -861,8 +875,8 @@ const UI = {
       else if (act === 'mixRevert') { s.mix = null; undoToast(`${s.name} is back on the game style's mix`); }
       else if (act === 'mixPromote') { App.style.mix = clone(s.mix); s.mix = null; undoToast(`The game style's mix now matches ${s.name}`); }
       else {
-        const t = App.track(b.closest('.strip').dataset.id);
-        t[act] = !t[act];
+        const x = partOf(App.pattern(), b.closest('.strip').dataset.id);
+        if (x) x[act] = !x[act];
         Engine.tracksAll(); this.renderMixer(); this.renderTracks(); App.changed();
         return;
       }
@@ -873,20 +887,22 @@ const UI = {
     const s = App.song, m = s.mix || App.style.mix;
     this.renderLayers();
     const layerOpts = (cur) => s.layers.map((l) => `<option value="${l.id}" ${l.id === cur ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
-    $('#mixer').innerHTML = s.tracks.map((t) => `
+    const pat = App.pattern();
+    $('#mixer').innerHTML = `<div class="mix-of muted">Mix of “${esc(pat ? pat.name : '')}” — each instrument's settings belong to this track (and travel with it to every level that links it).</div>` +
+      partLanes(s, pat).map((t) => { const x = partOf(pat, t); return `
       <div class="strip" data-id="${t.id}" style="--c:${t.color}">
         <h4 title="${esc(t.name)}">${esc(t.name)}</h4>
-        <label class="strip-layer" title="Intensity layer: the base always plays; layers above fade in as intensity rises"><span><i>Layer</i></span><select data-tlayer="${t.id}">${layerOpts(t.layer)}</select></label>
-        <div class="ms-row"><button class="ms m ${t.mute ? 'on' : ''}" data-act="mute">M</button><button class="ms s ${t.solo ? 'on' : ''}" data-act="solo">S</button></div>
-        ${ctl('Volume', 'vol', t.vol, 0, 1.2, 0.01, 'pct')}
-        ${ctl('Pan', 'pan', t.pan, -1, 1, 0.01, 'pan')}
+        <label class="strip-layer" title="Intensity layer: the base always plays; layers above fade in as intensity rises"><span><i>Layer</i></span><select data-tlayer="${t.id}">${layerOpts(x.layer)}</select></label>
+        <div class="ms-row"><button class="ms m ${x.mute ? 'on' : ''}" data-act="mute">M</button><button class="ms s ${x.solo ? 'on' : ''}" data-act="solo">S</button></div>
+        ${ctl('Volume', 'vol', x.vol, 0, 1.2, 0.01, 'pct')}
+        ${ctl('Pan', 'pan', x.pan, -1, 1, 0.01, 'pan')}
         <div class="section">Insert FX</div>
-        ${ctl('Drive', 'drive', t.drive, 0, 1, 0.01, 'pct')}
-        ${ctl('Tone (LPF)', 'tone', t.tone, 200, 20000, 1, 'hz')}
+        ${ctl('Drive', 'drive', x.drive, 0, 1, 0.01, 'pct')}
+        ${ctl('Tone (LPF)', 'tone', x.tone, 200, 20000, 1, 'hz')}
         <div class="section">Sends</div>
-        ${ctl('Reverb', 'rev', t.rev, 0, 1, 0.01, 'pct')}
-        ${ctl('Delay', 'dly', t.dly, 0, 1, 0.01, 'pct')}
-      </div>`).join('') + `
+        ${ctl('Reverb', 'rev', x.rev, 0, 1, 0.01, 'pct')}
+        ${ctl('Delay', 'dly', x.dly, 0, 1, 0.01, 'pct')}
+      </div>`; }).join('') + `
       <div class="strip master" data-id="master" style="--c:var(--accent)">
         <h4>Master</h4>
         ${s.mix
@@ -953,8 +969,8 @@ const UI = {
   scopeBar(tg) {
     const u = App.roleUsage(tg.role.id);
     const shareText = u.shared
-      ? `played by ${u.shared} track${u.shared === 1 ? '' : 's'} in ${u.sharedScores} level${u.sharedScores === 1 ? '' : 's'}`
-      : 'no tracks use it yet';
+      ? `played in ${u.sharedScores} level${u.sharedScores === 1 ? '' : 's'}`
+      : 'no level plays it yet';
     if (!tg.track) return `<div class="scope-bar"><span class="scope style">Library instrument</span><span class="muted">“${esc(tg.role.name)}” — edits change every level that plays it (${shareText}), except levels that customized it.</span></div>`;
     if (!tg.track.sound) return `<div class="scope-bar"><span class="scope style">From the library · ${esc(tg.role.name)}</span><span class="muted">Edits apply to all levels (${shareText}).</span>
       <button data-act="customize" title="Give this track its own copy of the sound, for this level only">Customize for this level</button></div>`;
@@ -1099,16 +1115,17 @@ const UI = {
     const st = App.style;
     return `<section class="style-sec lib-sec">
       <h4 class="subhead">Instruments</h4>
-      <p class="muted">The game's instruments, each with its own sound and default mix. Every level's tracks play these, so changing one here changes it in every level — except tracks a level has customized (✦). Click one to edit it below and play it on the keyboard; add it to a level with the sidebar's + Track.</p>
+      <p class="muted">The game's instruments, each with its own sound and default mix. Tracks (segments and stings) combine them, so changing one here changes it everywhere it plays — except levels that customized it (✦). Click one to edit it below and play it on the keyboard; add it to the open track with the sidebar's + Instrument.</p>
       <div class="role-list">${st.roles.map((r) => {
         const u = App.roleUsage(r.id);
         const custom = u.tracks - u.shared;
         const where = App.project.scores.filter((s) => s.tracks.some((t) => t.role === r.id)).map((s) => s.name).join(', ');
+        const inTracks = App.project.scores.reduce((a, s) => a + s.patterns.filter((p) => partLanes(s, p).some((t) => t.role === r.id)).length, 0);
         return `<div class="role-row ${App.sel.role === r.id ? 'sel' : ''}" data-id="${r.id}" title="Click to edit · double-click name to rename">
           <span class="dot" style="background:${r.color}"></span>
           <span class="name">${esc(r.name)}</span><button class="edit" data-act="rename" title="Rename instrument">✎</button>
           <span class="snd">${esc(soundName(r))}</span>
-          <span class="muted use" title="${esc(where)}">${u.tracks ? `${u.tracks} track${u.tracks > 1 ? 's' : ''} · ${u.scores} level${u.scores > 1 ? 's' : ''}${custom ? ` · <span class="flavor">✦${custom} customized</span>` : ''}` : 'not used yet'}</span>
+          <span class="muted use" title="${esc(where)}">${u.tracks ? `in ${inTracks} track${inTracks === 1 ? '' : 's'} · ${u.scores} level${u.scores > 1 ? 's' : ''}${custom ? ` · <span class="flavor">✦${custom} customized</span>` : ''}` : 'not used yet'}</span>
           <button data-act="dupRole" title="Copy as a new instrument (same sound and mix) to vary">Duplicate</button>
           <button class="x" data-act="del" title="${u.tracks ? `Can't delete: played in ${esc(where)}. Remove those tracks first.` : 'Delete instrument (not used by any level)'}" ${u.tracks ? 'disabled' : ''}>✕</button>
         </div>`;
@@ -1129,7 +1146,7 @@ const UI = {
       App.style.roles.push(r);
       App.sel.role = r.id;
       after(); App.changed();
-      toast(`Added the instrument “${r.name}”. Add it to a level with the sidebar's + Track.`);
+      toast(`Added the instrument “${r.name}”. Add it to a track with the sidebar's + Instrument.`);
       return true;
     }
     const row = e.target.closest('.role-row');
@@ -1373,7 +1390,7 @@ const UI = {
         if (fmt === 'project') { download(App.projectBlob(), name + '.synth.json'); status.textContent = 'Saved project file.'; }
         else if (fmt === 'midi') { download(exportMIDI(src, repeats), name + '.mid'); status.textContent = 'Saved MIDI file.'; }
         else if (fmt === 'stems') {
-          const tracks = App.song.tracks.filter((t) => !t.mute);
+          const tracks = App.song.tracks.filter((t) => App.song.patterns.some((p) => { const x = partOf(p, t); return x && !x.mute; }));
           for (let i = 0; i < tracks.length; i++) {
             status.textContent = `Rendering stem ${i + 1}/${tracks.length}: ${tracks[i].name}…`;
             const buf = await renderAudio({ source: src, repeats, tail, sampleRate, only: tracks[i].id });

@@ -263,6 +263,8 @@ Roles (Drums, Bass, Keys, Pad, Lead) live in the Game Style: each is a sound. A 
 - Migration: each role becomes an instrument with the same id, so nothing else changes in 6a. A role's mix defaults come from the tracks that play it.
 
 ### 6b. Tracks own their instruments
+✅ Done 2026-11-15, as in the build notes below. Checked: every demo track and layer renders the same as before (within the drums' random noise, ≤1.6%); live play, Simulate with transitions and a sting over the music, Unity renders, undo/redo, placing a track into a level without one of its instruments, linked mix edits both ways, and Claude's `add_track` / `set_track` / `remove_track` / `get_score`. New segments get every instrument of the level (with their usual mix). Tool names still say track/role; MCP needs a restart for the new `pattern` arguments.
+
 - A track (loop or sting) lists **its instruments** (parts): each part is an instrument plus its notes or beat, and its mix (volume, pan, drive, tone, reverb, delay, mute, solo). The same instrument can appear twice (e.g. two Lead parts).
 - The sidebar's *Tracks* section becomes **Instruments in this track**: select, colour, name, M, S, remove; **+ Instrument** picks one from the Library (or makes a new one). The layered roll's chips are the same list.
 - **Save to the Library**: tracks already live in the Library (step 2). A track's instruments and mix now travel with it, so placing it in another level brings its sound with it. *Make a version for this level* still splits one off.
@@ -270,6 +272,15 @@ Roles (Drums, Bass, Keys, Pad, Lead) live in the Game Style: each is a sound. A 
 - **Intensity layers**: each part in a track picks its layer (default: the layer that instrument used in this level before), shown on the part in the sidebar and in Mixer & FX.
 - **Mixer & FX** shows the open track's parts (strips as now) and the level's master; *Customize* / *Back to the game style* stay for the master.
 - Migration: each level track becomes a part in every track of that level that has notes for it, with that level track's mix and layer. Library items get their parts' instruments and mix. Old projects open unchanged in sound.
+
+**6b build notes (data model, 2026-11-15).**
+- A level keeps a list of *lanes* (`score.tracks`: instrument, name, colour, the level's sound customization, part key). Lanes are the level's instruments; nothing in the UI lists them directly any more.
+- Each track (level pattern) lists its **parts**: `p.parts = [{ t: laneId, vol, pan, drive, tone, rev, dly, layer, mute, solo }]`, in order. Notes and beats stay in `p.notes[laneId]` / `p.drums[laneId]`, so editors, themes and the library's key shifting are unchanged. Lanes keep no mix of their own.
+- The library item stores, per part key: the notes or beats, plus `mix` (with the layer by *name*); `item.order` keeps the order. Mix edits in a linked track write back and reach every level that links it ("the track's sound travels with it"). Placing a track in a level that lacks one of its instruments adds a lane for it (part key → instrument).
+- Audio: the engine keeps one channel per lane; the **playing track's parts** set each channel's mix and layer (switched at the exact time a new track starts, in live play and in offline renders). A sting played *over the music* uses the loop's channel settings for instruments both share. Unity stems: each segment renders with its own parts' layers and mutes.
+- Migration: a lane becomes a part of every track where it has notes (a track with no notes at all gets every lane), with that lane's mix and layer. Linked copies whose mixes disagree become own versions (so nothing changes in sound), and the app says how many.
+- Lanes that no track uses and that have no level sound customization are removed.
+- Claude tools keep their names for now (`add_track` adds an instrument to a track, `set_track` changes a part's mix in a track — the open one unless `pattern` is given, `remove_track` removes it from a track); `get_score` lists each track's parts.
 
 ### 6c. Curves (automation)
 - Under the Beat grid and Piano Roll, a **Curves** lane (folds away). Pick what it shapes: **Volume, Pan, Reverb, Delay, Filter**, plus **Pitch** (instrument) or **Speed** (whole track).
@@ -291,8 +302,8 @@ Roles (Drums, Bass, Keys, Pad, Lead) live in the Game Style: each is a sound. A 
 
 ### Must-keep for step 6
 - ✅ Game Style → Instrument roles (list, select to edit, rename, sound, usage, remove, + Role) → Library → Instruments (+ Instrument, Duplicate).
-- Sidebar Tracks list (select, colour, name, rename, ✦ custom mark, M, S, delete, + Track with role picker) → Instruments in this track (same controls; + Instrument picks from the Library).
-- Mixer & FX per-track strips (Mute, Solo, Volume, Pan, Drive, Tone, Reverb, Delay) → per-part strips in the open track; intensity layer per part.
+- ✅ Sidebar Tracks list (select, colour, name, rename, ✦ custom mark, M, S, delete, + Track with role picker) → Instruments in this track (same controls, M/S per track, ✕ removes from this track; + Instrument picks from the Library).
+- ✅ Mixer & FX per-track strips (Mute, Solo, Volume, Pan, Drive, Tone, Reverb, Delay) → per-part strips in the open track; intensity layer per part.
 - Instrument panel's scope bar (Customize for this level, Revert, Make this the game style) → Customize for this level / Back to the library version / Make this the library version.
 - Claude tools: `manage_role`, `add_track`, `remove_track`, `set_track`, `set_sound`, `set_mix`, `set_layers` change with 6a/6b (renamed to instruments and parts; the server instructions updated with them).
 

@@ -87,7 +87,8 @@ function buildGraph(ctx, song, opts = {}) {
   return g;
 }
 
-function setParam(g, param, value, instant) {
+function setParam(g, param, value, instant, at) {
+  if (at !== undefined && at !== null) { param.setValueAtTime(value, Math.max(at, g.ctx.currentTime)); return; }
   if (instant || !g.ctx.currentTime) param.value = value;
   else param.setTargetAtTime(value, g.ctx.currentTime, 0.015);
 }
@@ -132,33 +133,53 @@ function removeTrackNodes(g, id) {
   delete g.tracks[id];
 }
 
-/* `only` restricts an offline render: a track id (one stem) or a predicate (e.g. one intensity layer). */
-function trackAudible(song, t, only) {
-  if (only) return typeof only === 'function' ? only(t) : t.id === only;
-  if (t.mute) return false;
-  const anySolo = song.tracks.some((x) => x.solo);
-  return !anySolo || t.solo;
+/* Which part sets a lane's channel: the playing track's, else a sting's playing over it, else the
+   lane's usual part in this level (so auditions and the keyboard sound right while stopped). */
+function activePart(g, song, t) { return partOf(g.pat, t) || partOf(g.over, t) || laneMix(song, t); }
+
+/* Is lane t heard in track pat? `only` restricts an offline render: a lane id (one stem) or a
+   predicate (t, part) (e.g. one intensity layer). Mute and solo are per track. */
+function trackAudible(song, t, only, pat) {
+  const m = pat ? partOf(pat, t) : null;
+  if (pat && !m) return false;
+  if (m && m.mute) return false;
+  if (only) return typeof only === 'function' ? only(t, m) : t.id === only;
+  if (!m) return true;
+  const anySolo = pat.parts.some((x) => x.solo);
+  return !anySolo || m.solo;
 }
 
-/* Track fader × (in the live adaptive preview) its intensity layer's level. */
+/* Part fader × (in the live adaptive preview) its intensity layer's level. */
 function trackGain(g, song, t) {
-  if (!trackAudible(song, t, g.only)) return 0;
-  const layer = g.realtime && App.mode === 'adaptive' ? layerGainAt(song, t, App.intensity) : 1;
-  return t.vol * layer;
+  const m = activePart(g, song, t);
+  if (!m) return 0;
+  const pat = partOf(g.pat, t) ? g.pat : partOf(g.over, t) ? g.over : null;
+  if (pat && !trackAudible(song, t, g.only, pat)) return 0;
+  if (!pat && g.only && !trackAudible(song, t, g.only)) return 0;
+  const layer = g.realtime && App.mode === 'adaptive' ? layerGainAt(song, m, App.intensity) : 1;
+  return m.vol * layer;
 }
 /* Fade every track to its current layer level — slower than a fader move, like a game crossfade. */
 function applyLayerFades(g, song) {
   song.tracks.forEach((t) => { const n = g.tracks[t.id]; if (n) n.gain.gain.setTargetAtTime(trackGain(g, song, t), g.ctx.currentTime, 0.35); });
 }
-function applyTrack(g, t, song, instant) {
+function applyTrack(g, t, song, instant, at) {
   const n = g.tracks[t.id];
   if (!n) return;
-  n.drive.curve = t.drive > 0.001 ? driveCurve(t.drive) : null;
-  setParam(g, n.tone.frequency, t.tone, instant);
-  setParam(g, n.gain.gain, trackGain(g, song, t), instant);
-  setParam(g, n.pan.pan, t.pan, instant);
-  setParam(g, n.rev.gain, t.rev, instant);
-  setParam(g, n.dly.gain, t.dly, instant);
+  const m = activePart(g, song, t);
+  if (!m) { setParam(g, n.gain.gain, 0, instant, at); return; }
+  n.drive.curve = m.drive > 0.001 ? driveCurve(m.drive) : null;
+  setParam(g, n.tone.frequency, m.tone, instant, at);
+  setParam(g, n.gain.gain, trackGain(g, song, t), instant, at);
+  setParam(g, n.pan.pan, m.pan, instant, at);
+  setParam(g, n.rev.gain, m.rev, instant, at);
+  setParam(g, n.dly.gain, m.dly, instant, at);
+}
+/* The track (pattern) that sets the channels' mix; `at` switches them at that exact time. */
+function setPiece(g, song, pat, at, over) {
+  if (over) { if (g.over === pat) return; g.over = pat; }
+  else { if (g.pat === pat) return; g.pat = pat; }
+  song.tracks.forEach((t) => applyTrack(g, t, song, at === undefined, at));
 }
 
 function syncGraphTracks(g, song) {
@@ -397,11 +418,13 @@ function metronomeClick(ctx, t, accent) {
 }
 
 /* ---------- Step scheduling (shared by realtime + offline) ---------- */
-/* velScale turns the step down (a loop under a sting that plays over the music). */
-function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1) {
+/* velScale turns the step down (a loop under a sting that plays over the music). Only the track's
+   own instruments play; its parts set the channels' mix from this step on (over: a sting on top). */
+function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1, over = false) {
   const swingOff = (song.swing / 100) * stepDur * 0.5;
-  for (const t of song.tracks) {
-    if (!trackAudible(song, t, g.only)) continue;
+  setPiece(g, song, pat, time, over);
+  for (const t of partLanes(song, pat)) {
+    if (!trackAudible(song, t, g.only, pat)) continue;
     const n = g.tracks[t.id];
     if (!n) continue;
     if (t.type === 'drum') {
@@ -444,11 +467,13 @@ const Engine = {
     if (this.ctx.state === 'suspended') this.ctx.resume();
     return this.ctx;
   },
-  sync() { if (this.g) syncGraphTracks(this.g, App.song); },
-  track(t) { if (this.g) applyTrack(this.g, t, App.song); },
-  tracksAll() { if (this.g) App.song.tracks.forEach((t) => applyTrack(this.g, t, App.song)); },
+  /* While stopped, the open track sets the channels (what you hear when you play the keyboard). */
+  cur() { if (this.g && !Seq.playing) { this.g.pat = App.pattern(); this.g.over = null; } },
+  sync() { if (this.g) { this.cur(); syncGraphTracks(this.g, App.song); } },
+  track(t) { if (this.g) { this.cur(); applyTrack(this.g, t, App.song); } },
+  tracksAll() { if (this.g) { this.cur(); App.song.tracks.forEach((t) => applyTrack(this.g, t, App.song)); } },
   master() { if (this.g) applyMaster(this.g, App.song); },
-  layers() { if (this.g) applyLayerFades(this.g, App.song); },
+  layers() { if (this.g) { this.cur(); applyLayerFades(this.g, App.song); } },
   rebuild() {
     if (!this.g) return;
     Object.keys(this.g.tracks).forEach((id) => removeTrackNodes(this.g, id));
@@ -618,9 +643,9 @@ const Seq = {
           if (O.local === null && this.atBoundary(local, O.at)) O.local = 0;
           if (O.local !== null) {
             const op = song.patterns[O.pat];
-            if (op) scheduleStep(Engine.g, song, op, O.local, this.nextTime, stepDur);
+            if (op) scheduleStep(Engine.g, song, op, O.local, this.nextTime, stepDur, 1, true);
             under = O.duck;
-            if (!op || ++O.local >= op.bars * 16) this.adapt.over = null;
+            if (!op || ++O.local >= op.bars * 16) { this.adapt.over = null; Engine.g.over = null; }
           }
         }
         scheduleStep(Engine.g, song, song.patterns[pi], local, this.nextTime, stepDur, under);
@@ -676,6 +701,7 @@ async function renderBlocks(song, blocks, { tail = 2, sampleRate = 44100, only =
   const dur = start + totalSteps * stepDur + tail;
   const off = new OfflineAudioContext(2, Math.ceil(dur * sampleRate), sampleRate);
   const g = buildGraph(off, song, { only });
+  if (blocks.length) { g.pat = song.patterns[blocks[0]]; song.tracks.forEach((t) => applyTrack(g, t, song, true)); }
   let time = start;
   for (const pi of blocks) {
     const pat = song.patterns[pi];

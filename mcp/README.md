@@ -40,7 +40,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 |---|---|
 | `status` | Is a Synth Studio page connected, and which game/score is open |
 | `get_project` | Game style (instruments — `roles` — and mix), themes, flavors, every score's segments/stings/layers |
-| `get_score` | One level in detail: tracks, layers, patterns, links to themes, export playthrough |
+| `get_score` | One level in detail: instruments, layers, patterns with their instruments (mix, layer, mute), links to themes, export playthrough |
 | `get_pattern` | A pattern's notes (`1.1.1 A4 1/4 v100`) and drum lines (`X...x...|…`) |
 | **Composing** | |
 | `write_notes` | Melody / bass / chords in readable notation (`1.1.1 [A3 C4 E4] 1/2 v90`, dotted `1/4.`, triplet `1/8t`) |
@@ -57,8 +57,8 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | `create_score` / `set_score` | New level (from the style, or a copy) / key, tempo, swing, when segment changes land |
 | `add_pattern` / `set_pattern` / `delete_pattern` | New segments and stings (each becomes a library item), length, entry stings; delete removes from the level only |
 | `set_arrangement` | Export playthrough (pattern order for plain audio/MIDI export) |
-| `set_layers` | Intensity layers and which tracks are on each |
-| `add_track` / `set_track` / `remove_track` | Tracks, mixer settings, mute/solo, layer |
+| `set_layers` | Intensity layers and which instruments are on each |
+| `add_track` / `set_track` / `remove_track` | A pattern's instruments: add one, change its mix / mute / solo / layer in that pattern, remove it (default: the open pattern) |
 | **Sound & consistency** | |
 | `set_sound` | Change a sound for one level (`scope: level`) or the whole game (`scope: game_style` — reports every score it reaches) |
 | `sound_scope` | Customize / revert / promote a track's sound |

@@ -42,16 +42,16 @@ Object.assign(BridgeAPI, {
       if (s.key !== st.key || s.scale !== st.scale) add('note', W, `In ${MusicText.key(s)}; the game style default is ${NOTE_NAMES[st.key]} ${SCALES[st.scale].name}.`);
       if (Math.abs(s.bpm - st.bpm) > 30) add('check', W, `${s.bpm} BPM is far from the style's ${st.bpm} BPM.`, 'Intended? Tempo is a big part of a level\'s feel.');
       if (s.layers.length < 2) add('note', W, 'Only one intensity layer — SetIntensity will have no effect in the game.', 'set_layers to split tracks into Base / Rhythm / Intensity.');
-      s.layers.forEach((l) => { if (!s.tracks.some((t) => t.layer === l.id)) add('check', `${W} › layer ${l.name}`, 'Layer has no tracks — raising intensity into it adds nothing.', 'set_layers assign, or remove the layer.'); });
-      s.tracks.filter((t) => t.mute).forEach((t) => add('check', `${W} › ${t.name}`, 'Track is muted, so it\'s left out of every export.', 'set_track mute false if that isn\'t intended.'));
+      s.layers.forEach((l) => { if (!s.patterns.some((p) => (p.parts || []).some((x) => x.layer === l.id))) add('check', `${W} › layer ${l.name}`, 'Layer has no instruments in any track — raising intensity into it adds nothing.', 'set_layers assign, or remove the layer.'); });
+      s.patterns.forEach((p) => (p.parts || []).filter((x) => x.mute).forEach((x) => add('check', `${W} › ${p.name} › ${(s.tracks.find((t) => t.id === x.t) || {}).name}`, 'Instrument is muted in this track, so it\'s left out of every export.', 'set_track mute false (with pattern) if that isn\'t intended.')));
       const custom = s.tracks.filter((t) => t.sound);
       if (custom.length || s.mix) add('note', W, `Level flavor: ${[...custom.map((t) => `${t.name} → ${soundName(t.sound)}`), ...(s.mix ? ['own mix'] : [])].join(', ')}.`);
 
       segs.forEach((p) => {
         const where = `${W} › ${p.name}`;
-        if (s.tracks.every((t) => Production.trackEmpty(p, t))) { add('problem', where, 'Segment is empty (no notes or drums).', 'Write something, or delete_pattern.'); return; }
+        if (partLanes(s, p).every((t) => Production.trackEmpty(p, t))) { add('problem', where, 'Segment is empty (no notes or drums).', 'Write something, or delete_pattern.'); return; }
         s.layers.forEach((l, i) => {
-          const ts = s.tracks.filter((t) => t.layer === l.id && !t.mute);
+          const ts = partLanes(s, p).filter((t) => { const x = partOf(p, t); return x.layer === l.id && !x.mute; });
           if (i > 0 && ts.length && ts.every((t) => Production.trackEmpty(p, t))) add('note', where, `Layer “${l.name}” is silent here — raising intensity won't add anything in this segment.`);
         });
         s.tracks.filter((t) => t.type === 'synth').forEach((t) => {
@@ -83,7 +83,7 @@ Object.assign(BridgeAPI, {
       for (const [i, p] of s.patterns.entries()) {
         let chs;
         if (p.kind === 'sting') chs = (await UnityExport.renderSting(s, i, sr)).chs;
-        else chs = (await UnityExport.renderLoop(s, i, (t) => !t.mute, sr)).chs;
+        else chs = (await UnityExport.renderLoop(s, i, (t, m) => !!m, sr)).chs;
         const lufs = await UnityExport.lufs(chs, sr);
         rows.push({ pattern: p.name, type: p.kind === 'sting' ? 'sting' : 'segment', lufs: isFinite(lufs) ? +lufs.toFixed(1) : null, peakDbfs: Production.db(UnityExport.peak(chs)) });
       }

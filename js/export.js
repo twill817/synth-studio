@@ -123,8 +123,9 @@ function exportMIDI(source, repeats) {
     let channel;
     if (t.type === 'drum') channel = 9;
     else { if (ch === 9) ch++; channel = ch++ % 16; events.push({ tick: 0, order: 0, data: [0xc0 | channel, (snd(t).synth.gm ?? 0) & 127] }); }
-    events.push({ tick: 0, order: 0, data: [0xb0 | channel, 7, Math.round(clamp(t.vol, 0, 1) * 127)] });
-    events.push({ tick: 0, order: 0, data: [0xb0 | channel, 10, Math.round((t.pan + 1) * 63.5)] });
+    const lm = laneMix(App.song, t) || { vol: 0.75, pan: 0 };
+    events.push({ tick: 0, order: 0, data: [0xb0 | channel, 7, Math.round(clamp(lm.vol, 0, 1) * 127)] });
+    events.push({ tick: 0, order: 0, data: [0xb0 | channel, 10, Math.round((lm.pan + 1) * 63.5)] });
     let offset = 0;
     for (const pi of blocks) {
       const pat = song.patterns[pi];
