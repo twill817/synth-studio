@@ -116,19 +116,25 @@ function applyCurves(g, song, pat, local, time, sd, over) {
   };
   if (!over && pat.curves) ['vol', 'pan', 'rev', 'dly', 'cut'].forEach((k) => { if (pat.curves[k] && pat.curves[k].length) ramp(curveParam(g, null, k), k, pat.curves[k]); });
   (pat.parts || []).forEach((x) => {
-    if (!x.curves || (over && partOf(g.pat, x.t))) return;   // a sting over the music doesn't steer the loop's instruments
+    if (over && partOf(g.pat, x.t)) return;   // a sting over the music doesn't steer the loop's instruments
     const n = g.tracks[x.t];
     if (!n) return;
-    ['vol', 'pan', 'rev', 'dly', 'cut'].forEach((k) => { if (x.curves[k] && x.curves[k].length) ramp(curveParam(g, n, k), k, x.curves[k]); });
+    ['vol', 'pan', 'rev', 'dly', 'cut'].forEach((k) => {
+      const c = partCurve(song, x, k);   // the track's own curve, else the instrument's repeating one
+      if (!c) return;
+      const a = curveLocal(c, local), prm = curveParam(g, n, k);
+      prm.setValueAtTime(curveScale(k, evalCurve(c.pts, a, k)), time);
+      prm.linearRampToValueAtTime(curveScale(k, evalCurve(c.pts, a + 1, k)), time + sd);
+    });
   });
 }
 /* Pitch curve of a part over one note: [{ t, c (cents) }] samples, every 16th, from its start to its end. */
-function pitchBend(x, nt, st, sd) {
-  const pts = x && x.curves && x.curves.pitch;
-  if (!pts || !pts.length) return null;
+function pitchBend(song, x, nt, st, sd) {
+  const c = partCurve(song, x, 'pitch');
+  if (!c) return null;
   const out = [], end = nt.s + nt.l;
   for (let s = nt.s; ; s = Math.min(end, Math.floor(s) + 1)) {
-    out.push({ t: st + (s - nt.s) * sd, c: evalCurve(pts, s, 'pitch') * 100 });
+    out.push({ t: st + (s - nt.s) * sd, c: curveAt(c, s, 'pitch') * 100 });
     if (s >= end) break;
   }
   return out;
@@ -274,7 +280,40 @@ function synthVoice(ctx, dest, p, midi, vel, t, dur, bend) {
   o2.frequency.value = f * Math.pow(2, (p.o2semi || 0) / 12);
   o2.detune.value = p.detune || 0;
   g1.gain.value = 1 - p.mix; g2.gain.value = p.mix;
-  o1.connect(g1); o2.connect(g2); g1.connect(filt); g2.connect(filt); filt.connect(env); env.connect(dest);
+  o1.connect(g1); o2.connect(g2); g1.connect(filt); g2.connect(filt); filt.connect(env);
+  // the instrument's shape over each note (p.shape: Volume / Filter / Pan / Pitch over 0…100 % of the note)
+  const sh = p.shape, L = dur || 0.6, extra = [];
+  const along = (k, prm, scale) => {
+    const pts = sh && sh[k];
+    if (!pts || !pts.length) return false;
+    for (let i = 0; i <= 24; i++) { const at = t + (L * i) / 24, v = scale(evalCurve(pts, (100 * i) / 24, k)); if (i) prm.linearRampToValueAtTime(v, at); else prm.setValueAtTime(v, at); }
+    return true;
+  };
+  let out = env;
+  if (sh) {
+    const sv = ctx.createGain();
+    if (along('vol', sv.gain, (v) => Math.max(0, v / 100))) { out.connect(sv); out = sv; extra.push(sv); }
+    const sf = ctx.createBiquadFilter(); sf.type = 'lowpass'; sf.Q.value = 0.7;
+    if (along('cut', sf.frequency, (v) => clamp(v, 20, 20000))) { out.connect(sf); out = sf; extra.push(sf); }
+    if (ctx.createStereoPanner) {
+      const sp = ctx.createStereoPanner();
+      if (along('pan', sp.pan, (v) => clamp(v / 100, -1, 1))) { out.connect(sp); out = sp; extra.push(sp); }
+    }
+    if (sh.pitch && sh.pitch.length) {   // add the note's pitch shape to the track's bend
+      const at = (tt) => {
+        let c = 0;
+        if (bend && bend.length) {
+          if (tt <= bend[0].t) c = bend[0].c;
+          else if (tt >= bend[bend.length - 1].t) c = bend[bend.length - 1].c;
+          else { let j = 0; while (bend[j + 1].t < tt) j++; const a = bend[j], b = bend[j + 1]; c = a.c + (b.c - a.c) * ((tt - a.t) / Math.max(1e-6, b.t - a.t)); }
+        }
+        return c + evalCurve(sh.pitch, clamp(((tt - t) / L) * 100, 0, 100), 'pitch') * 100;
+      };
+      const ts = [...new Set([...(bend || []).map((b) => b.t), ...Array.from({ length: 25 }, (_, i) => t + (L * i) / 24)])].sort((a, b) => a - b);
+      bend = ts.map((tt) => ({ t: tt, c: at(tt) }));
+    }
+  }
+  out.connect(dest);
 
   const nodes = [o1, o2];
   if (p.lfoDepth > 0) {
@@ -292,7 +331,7 @@ function synthVoice(ctx, dest, p, midi, vel, t, dur, bend) {
     bend.slice(1).forEach((b) => { o1.detune.linearRampToValueAtTime(b.c, b.t); o2.detune.linearRampToValueAtTime(base2 + b.c, b.t); });
   }
   o1.start(t); o2.start(t);
-  o1.onended = () => { [o1, o2, g1, g2, filt, env].forEach((x) => x.disconnect()); };
+  o1.onended = () => { [o1, o2, g1, g2, filt, env, ...extra].forEach((x) => x.disconnect()); };
 
   return {
     release(tr) {
@@ -499,8 +538,8 @@ function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1, over = f
         const vel = grid[v.id] && grid[v.id][local];
         if (vel > 0) {
           let vs = s.voices[v.id];
-          const x = partOf(pat, t), pc = x && x.curves && x.curves.pitch;
-          if (pc && pc.length) vs = { ...vs, tune: (vs.tune || 0) + evalCurve(pc, local, 'pitch') };
+          const pc = partCurve(song, partOf(pat, t), 'pitch');
+          if (pc) vs = { ...vs, tune: (vs.tune || 0) + curveAt(pc, local, 'pitch') };
           playDrum(g, n.input, v.id, st, vel * velScale, s.kit, vs, vs && vs.sample ? App.sampleBuffer(vs.sample) : null);
         }
       }
@@ -513,7 +552,7 @@ function scheduleStep(g, song, pat, local, time, stepDur, velScale = 1, over = f
         const isOdd = Math.abs(nt.s - Math.round(nt.s)) < 1e-6 && Math.round(nt.s) % 2 === 1;
         const st = time + (nt.s - local) * stepDur + (isOdd ? swingOff : 0);
         const dur = nt.l * stepDur;
-        synthVoice(g.ctx, n.input, s.synth, nt.p, nt.v * velScale, st, dur, pitchBend(partOf(pat, t), nt, st, stepDur)).release(st + dur);
+        synthVoice(g.ctx, n.input, s.synth, nt.p, nt.v * velScale, st, dur, pitchBend(song, partOf(pat, t), nt, st, stepDur)).release(st + dur);
       }
     }
   }

@@ -198,6 +198,20 @@ function evalCurve(pts, s, param) {
   const m0 = tan(i) * h, m1 = tan(i + 1) * h, u2 = u * u, u3 = u2 * u;
   return fi((2 * u3 - 3 * u2 + 1) * ya + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * yb + (u3 - u2) * m1);
 }
+const NOTE_CURVES = ['vol', 'pan', 'cut', 'pitch'];   // a synth instrument's shape over each note (s = 0…100 % of the note)
+/* An instrument's repeating curve (role.curves, every role.curveBars bars): { pts, len } or null. */
+function roleCurve(r, k) { const pts = r && r.curves && r.curves[k]; return pts && pts.length ? { pts, len: (r.curveBars || 1) * 16 } : null; }
+/* The curve an instrument plays in a track for setting k: the track's own (an empty list = off there),
+   else the instrument's repeating one. { pts, len } (len 0 = over the track) or null. */
+function partCurve(song, x, k) {
+  if (!x) return null;
+  if (x.curves && x.curves[k]) return x.curves[k].length ? { pts: x.curves[k], len: 0 } : null;
+  const t = song.tracks.find((l) => l.id === x.t);
+  return t ? roleCurve(roleOf(t), k) : null;
+}
+/* Value at step s, and where s sits inside a repeating curve. */
+function curveLocal(c, s) { return c.len ? s % c.len : s; }
+function curveAt(c, s, k) { return evalCurve(c.pts, curveLocal(c, s), k); }
 function hasCurves(c) { return !!c && Object.values(c).some((pts) => pts && pts.length); }
 /* Speed (stings): how fast step s plays (1 = the level's tempo). */
 function speedAt(p, s) { return p && p.kind === 'sting' && p.curves && p.curves.speed ? clamp(evalCurve(p.curves.speed, s + 0.5, 'speed'), 50, 200) / 100 : 1; }

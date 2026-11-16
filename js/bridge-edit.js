@@ -585,12 +585,58 @@ Object.assign(BridgeAPI, {
 
   /* Curves (step 6c): one instrument's in a pattern (target), or a sting's Speed (no target). points:
      [{ at, value }] with at = "bar.beat.16th" (or "end"); straight = straight lines between them (else smooth). */
-  setCurve({ score, pattern, target, param, points, straight, clear }) {
+  /* instrument: a library instrument's own curve instead — every: "note" (a shape over each note, synths;
+     at = % of the note) or a number of bars (a curve that repeats in every track; at = bar.beat.16th
+     inside it). In a pattern, reset: back to the instrument's repeating curve; off: none in this track. */
+  setCurve({ score, pattern, target, param, points, straight, clear, instrument, every, reset, off }) {
     return Edit.run(score, (s) => {
-      const p = Ref.patternOrOpen(s, pattern);
       const key = Object.keys(CURVE_PARAMS).find((k) => k === param || CURVE_PARAMS[k].name.toLowerCase() === String(param || '').toLowerCase());
       if (!key) throw new Error(`param must be one of: ${Object.values(CURVE_PARAMS).map((x) => x.name).join(', ')}.`);
       const P = CURVE_PARAMS[key];
+      const fmtPts = (pts, end, note) => pts.map((x) => `${note ? x.s + '%' : x.s >= end ? 'end' : `${Math.floor(x.s / 16) + 1}.${Math.floor((x.s % 16) / 4) + 1}.${(x.s % 4) + 1}`} ${curveText(key, x.v)}`).join(' → ');
+      const readPts = (end, note, what) => {
+        if (!points || !points.length) throw new Error(`Give points: [{ at: ${note ? '"0%"…"100%"' : '"bar.beat.16th" or "end"'}, value }], or clear: true.`);
+        return points.map((x) => {
+          const a = String(x.at).trim().toLowerCase();
+          const s0 = a === 'end' ? end : note ? parseFloat(a) : MusicParse.pos(x.at);
+          if (!isFinite(s0) || s0 < 0 || s0 > end) throw new Error(note ? `at is a % of the note, 0–100 (got ${x.at}).` : `${x.at} is past the end of ${what} (use "end").`);
+          const v = +x.value;
+          if (!isFinite(v) || v < P.min || v > P.max) throw new Error(`${P.name} values run ${P.min}…${P.max} (${P.unit === '%' ? '% of the mix setting, 100 = as mixed' : P.unit}); got ${x.value}.`);
+          return straight ? { s: s0, v, k: 'line' } : { s: s0, v };
+        }).sort((a, b) => a.s - b.s);
+      };
+      if (instrument) {
+        const r = Ref.pick(App.style.roles, instrument, 'instrument');
+        const note = String(every || '').toLowerCase() === 'note';
+        if (note) {
+          if (r.type === 'drum') throw new Error('Note shapes are for synth instruments (a drum hit has no length). Use a repeating curve (every: bars).');
+          if (!NOTE_CURVES.includes(key)) throw new Error(`A note shape can be ${NOTE_CURVES.map((k) => CURVE_PARAMS[k].name).join(', ')}.`);
+          const sh = r.synth.shape || {};
+          if (clear) delete sh[key]; else sh[key] = readPts(100, true);
+          if (Object.keys(sh).length) r.synth.shape = sh; else delete r.synth.shape;
+          App.sel.role = r.id;
+          const custom = App.project.scores.filter((x) => x.tracks.some((t) => t.role === r.id && t.sound)).map((x) => x.name);
+          return clear ? `Cleared ${r.name}'s ${P.name.toLowerCase()} shape over each note.` : `${r.name}: ${P.name.toLowerCase()} over each note ${fmtPts(sh[key], 100, true)}, stretched to every note it plays.` + (custom.length ? ` Levels with their own ${r.name} sound keep theirs: ${custom.join(', ')}.` : '');
+        }
+        if (!PART_CURVES.includes(key)) throw new Error(`An instrument's repeating curve can be ${PART_CURVES.map((k) => CURVE_PARAMS[k].name).join(', ')}.`);
+        if (every !== undefined && every !== null && every !== '') {
+          const b = +every;
+          if (![1, 2, 4, 8].includes(b)) throw new Error('every: "note", or how many bars the curve lasts before it repeats: 1, 2, 4 or 8.');
+          r.curveBars = b;
+          if (r.curves) Object.values(r.curves).forEach((pts) => { for (let i = pts.length - 1; i >= 0; i--) if (pts[i].s > b * 16) pts.splice(i, 1); });
+        }
+        const len = (r.curveBars || 1) * 16;
+        r.curves = r.curves || {};
+        if (clear) delete r.curves[key]; else r.curves[key] = readPts(len, false, `the ${len / 16}-bar curve`);
+        Object.keys(r.curves).forEach((k) => { if (!r.curves[k].length) delete r.curves[k]; });
+        if (!Object.keys(r.curves).length) delete r.curves;
+        App.sel.role = r.id;
+        const own = [];
+        App.project.scores.forEach((x) => x.patterns.forEach((p) => (p.parts || []).forEach((y) => { const t = x.tracks.find((l) => l.id === y.t); if (t && t.role === r.id && y.curves && y.curves[key]) own.push(`${x.name} › ${p.name}`); })));
+        return (clear ? `Cleared ${r.name}'s repeating ${P.name.toLowerCase()} curve.` : `${r.name}: ${P.name.toLowerCase()} ${fmtPts(r.curves[key], len)}, repeating every ${len / 16} bar${len > 16 ? 's' : ''} in every track that plays it.`) +
+          (own.length ? ` Tracks with their own ${P.name.toLowerCase()} curve for it keep theirs: ${own.join(', ')} (reset: true in a pattern goes back to the instrument's).` : '');
+      }
+      const p = Ref.patternOrOpen(s, pattern);
       const whole = key === 'speed' || !target || /^(track|whole( track| sting)?|pattern|all)$/i.test(String(target).trim());
       let owner, label;
       if (whole) {
@@ -603,24 +649,25 @@ Object.assign(BridgeAPI, {
         if (!owner) throw new Error(`“${t.name}” isn't in “${p.name}”. Add it with add_track first.`);
         label = `${t.name} in “${p.name}”`;
       }
-      if (clear) {
+      const inst = whole ? null : roleCurve(roleOf(Ref.track(s, target)), key);
+      if (clear || reset) {
         if (owner.curves) { delete owner.curves[key]; if (!Object.keys(owner.curves).length) delete owner.curves; }
         Edit._show = { pattern: p };
-        return `Cleared the ${P.name.toLowerCase()} curve on ${label}.`;
+        return `Cleared the ${P.name.toLowerCase()} curve on ${label}.` + (inst ? ` It plays the instrument's repeating curve again (every ${inst.len / 16} bar${inst.len > 16 ? 's' : ''}); off: true turns it off here.` : '');
       }
-      if (!points || !points.length) throw new Error('Give points: [{ at: "bar.beat.16th", value }], or clear: true.');
+      if (off) {
+        if (!inst) throw new Error(`The instrument has no repeating ${P.name.toLowerCase()} curve to turn off; clear: true removes this track's own.`);
+        owner.curves = owner.curves || {};
+        owner.curves[key] = [];
+        Edit._show = { pattern: p };
+        return `No ${P.name.toLowerCase()} curve on ${label} (the instrument's repeating one is off here).`;
+      }
       const end = p.bars * 16;
-      const pts = points.map((x) => {
-        const s0 = String(x.at).trim().toLowerCase() === 'end' ? end : MusicParse.pos(x.at);
-        if (s0 > end) throw new Error(`${x.at} is past the end of “${p.name}” (${p.bars} bar${p.bars > 1 ? 's' : ''}; use "end").`);
-        const v = +x.value;
-        if (!isFinite(v) || v < P.min || v > P.max) throw new Error(`${P.name} values run ${P.min}…${P.max} (${P.unit === '%' ? '% of the mix setting, 100 = as mixed' : P.unit}); got ${x.value}.`);
-        return straight ? { s: s0, v, k: 'line' } : { s: s0, v };
-      }).sort((a, b) => a.s - b.s);
+      const pts = readPts(end, false, `“${p.name}” (${p.bars} bar${p.bars > 1 ? 's' : ''})`);
       owner.curves = owner.curves || {};
       owner.curves[key] = pts;
       Edit._show = { pattern: p };
-      return `${P.name} curve on ${label}: ${pts.map((x) => `${x.s >= end ? 'end' : `${Math.floor(x.s / 16) + 1}.${Math.floor((x.s % 16) / 4) + 1}.${(x.s % 4) + 1}`} ${curveText(key, x.v)}`).join(' → ')} (${straight ? 'straight' : 'smooth'}). It plays in the preview and is built into the exported audio.` + (p.kind !== 'sting' ? ' A loop repeats its curves each time round.' : '');
+      return `${P.name} curve on ${label}: ${fmtPts(pts, end)} (${straight ? 'straight' : 'smooth'}). It plays in the preview and is built into the exported audio.` + (p.kind !== 'sting' ? ' A loop repeats its curves each time round.' : '') + (inst ? ' It replaces the instrument\'s repeating curve in this track (reset: true goes back).' : '');
     }, Edit.consumeShow('roll'));
   },
 

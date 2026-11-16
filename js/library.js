@@ -59,7 +59,7 @@ const Library = {
     INST_MIX_KEYS.forEach((k) => (m[k] = x[k]));
     m.layer = (song.layers.find((l) => l.id === x.layer) || song.layers[0]).name;
     m.mute = !!x.mute; m.solo = !!x.solo;
-    if (hasCurves(x.curves)) m.curves = clone(x.curves);
+    if (x.curves && Object.keys(x.curves).length) m.curves = clone(x.curves);   // (an empty list = off in this track)
     return m;
   },
   mixIn(song, m, t) {
@@ -70,7 +70,7 @@ const Library = {
       x.layer = L ? L.id : song.layers[0].id;
       x.mute = !!m.mute; x.solo = !!m.solo;
     }
-    if (m && hasCurves(m.curves)) x.curves = clone(m.curves); else delete x.curves;
+    if (m && m.curves && Object.keys(m.curves).length) x.curves = clone(m.curves); else delete x.curves;
     x.t = t.id;
     return x;
   },

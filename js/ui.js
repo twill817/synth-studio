@@ -120,6 +120,7 @@ const UI = {
     this.initShortcuts();
     Roll.init();
     Curves.init();
+    InstCurves.init();
     this.renderAll();
     requestAnimationFrame(() => this.frame());
     window.addEventListener('resize', () => { this.renderKeyboard(); Roll.draw(); });
@@ -948,7 +949,7 @@ const UI = {
       if (!tg) return null;
       const S = tg.sound;
       if (el.closest('[data-scope="mix"]')) return tg.track ? null : { obj: tg.role.mix, after: () => this.renderLibrary() };
-      if (el.dataset.k === 'preset') return { obj: S, after: (el2, v) => { S.synth = { ...SYNTH_PRESETS[v] }; this.renderInst(); this.renderLibrary(); this.renderTracks(); } };
+      if (el.dataset.k === 'preset') return { obj: S, after: (el2, v) => { S.synth = { ...SYNTH_PRESETS[v], ...(S.synth && S.synth.shape ? { shape: S.synth.shape } : {}) }; /* the note shape stays */ this.renderInst(); this.renderLibrary(); this.renderTracks(); } };
       if (el.dataset.k === 'kit') return { obj: S, after: () => { this.renderBeat(); this.renderLibrary(); } };
       return { obj: S.synth };
     });
@@ -1005,7 +1006,8 @@ const UI = {
       ip.innerHTML = `<h4>${dot}${title}
         <label>Kit <select data-k="kit">${Object.entries(DRUM_KITS).map(([k, v]) => `<option value="${k}" ${k === S.kit ? 'selected' : ''}>${v.name}</option>`).join('')}</select></label></h4>
         ${this.scopeBar(tg)}
-        <p class="muted">Per-pad level, tuning, decay, pan and custom samples are in the <b>Beat</b> tab. The keyboard plays pads chromatically from C (C = kick, C# = snare, D = clap …) — or use number keys 1–0.</p>${mixHTML}`;
+        <p class="muted">Per-pad level, tuning, decay, pan and custom samples are in the <b>Beat</b> tab. The keyboard plays pads chromatically from C (C = kick, C# = snare, D = clap …) — or use number keys 1–0.</p>${mixHTML}${InstCurves.html(tg)}`;
+      InstCurves.mount(ip);
       return;
     }
     const p = S.synth;
@@ -1030,7 +1032,8 @@ const UI = {
         ${ctl('Vibrato rate', 'lfoRate', p.lfoRate, 0.1, 12, 0.1, 'hz')}
         ${ctl('Vibrato depth', 'lfoDepth', p.lfoDepth, 0, 50, 1, 'ct')}
         ${ctl('Level', 'gain', p.gain, 0, 1.6, 0.01, 'pct')}
-      </div>${mixHTML}`;
+      </div>${mixHTML}${InstCurves.html(tg)}`;
+    InstCurves.mount(ip);
   },
 
   /* ---------- Library tab: every segment, sting and melody in the game ---------- */

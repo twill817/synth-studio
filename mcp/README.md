@@ -58,7 +58,7 @@ Claude Code / Claude Desktop ──(MCP, stdio)──► mcp/server.js ──(lo
 | `add_pattern` / `set_pattern` / `delete_pattern` | New segments and stings (each becomes a library item), length, entry stings; delete removes from the level only |
 | `set_arrangement` | Export playthrough (pattern order for plain audio/MIDI export) |
 | `set_layers` | Intensity layers and which instruments are on each |
-| `set_curve` | Shape a pattern over time: Volume, Pan, Reverb, Delay, Filter, Pitch on one instrument in a pattern; Speed on a whole sting |
+| `set_curve` | Shape a pattern over time: Volume, Pan, Reverb, Delay, Filter, Pitch on one instrument in a pattern; Speed on a whole sting; or on a library instrument (`instrument`): repeating every N bars, or a shape over each note (`every: "note"`) |
 | `add_track` / `set_track` / `remove_track` | A pattern's instruments: add one, change its mix / mute / solo / layer in that pattern, remove it (default: the open pattern) |
 | **Sound & consistency** | |
 | `set_sound` | Change a sound for one level (`scope: level`) or the whole game (`scope: game_style` — reports every score it reaches) |

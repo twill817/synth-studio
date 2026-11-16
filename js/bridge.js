@@ -164,7 +164,9 @@ const BridgeAPI = {
         defaultsForNewScores: { key: `${NOTE_NAMES[st.key]} ${SCALES[st.scale].name}`, bpm: st.bpm },
         roles: st.roles.map((r) => {
           const u = App.roleUsage(r.id);
-          return { name: r.name, type: r.type, sound: soundName(r), usedBy: `${u.tracks} track(s) in ${u.scores} score(s)`, customizedIn: u.tracks - u.shared };
+          return { name: r.name, type: r.type, sound: soundName(r), usedBy: `${u.tracks} track(s) in ${u.scores} score(s)`, customizedIn: u.tracks - u.shared,
+            ...(hasCurves(r.curves) ? { repeatingCurves: `${Object.keys(r.curves).map((k) => CURVE_PARAMS[k].name).join(', ')}, every ${r.curveBars || 1} bar(s)` } : {}),
+            ...(r.synth && hasCurves(r.synth.shape) ? { noteShape: Object.keys(r.synth.shape).map((k) => CURVE_PARAMS[k].name).join(', ') } : {}) };
         }),
         masterMix: st.mix,
       },
@@ -203,7 +205,7 @@ const BridgeAPI = {
       intensityLayers: s.layers.map((l, i) => ({ name: l.name, level: i === 0 ? 'always on' : i })),
       patterns: s.patterns.map((p, i) => ({
         letter: String.fromCharCode(65 + i), name: p.name, type: p.kind === 'sting' ? 'sting (plays once)' : 'segment (loops)', bars: p.bars,
-        instruments: partLanes(s, p).map((t) => { const x = partOf(p, t); return { name: t.name, layer: (s.layers.find((l) => l.id === x.layer) || {}).name, volume: +x.vol.toFixed(2), pan: +x.pan.toFixed(2), ...(x.mute ? { muted: true } : {}), ...(x.solo ? { solo: true } : {}), ...(hasCurves(x.curves) ? { curves: Object.keys(x.curves).map((k) => CURVE_PARAMS[k].name) } : {}) }; }),
+        instruments: partLanes(s, p).map((t) => { const x = partOf(p, t); return { name: t.name, layer: (s.layers.find((l) => l.id === x.layer) || {}).name, volume: +x.vol.toFixed(2), pan: +x.pan.toFixed(2), ...(x.mute ? { muted: true } : {}), ...(x.solo ? { solo: true } : {}), ...(hasCurves(x.curves) ? { curves: Object.keys(x.curves).filter((k) => x.curves[k].length).map((k) => CURVE_PARAMS[k].name) } : {}), ...((() => { const off = Object.keys(x.curves || {}).filter((k) => !x.curves[k].length).map((k) => CURVE_PARAMS[k].name), inh = PART_CURVES.filter((k) => !(x.curves && x.curves[k]) && roleCurve(roleOf(t), k)).map((k) => CURVE_PARAMS[k].name); return { ...(inh.length ? { instrumentCurves: inh } : {}), ...(off.length ? { instrumentCurvesOff: off } : {}) }; })()) }; }),
         ...(hasCurves(p.curves) ? { curves: Object.keys(p.curves).map((k) => CURVE_PARAMS[k].name) } : {}),
         library: p.lib ? `linked to “${(Library.of(p) || {}).name}”${Library.alsoIn(p, s).length ? ` — also plays in ${Library.alsoIn(p, s).join(', ')}, so edits change it there too` : ''}`
           : p.from && Library.find(p.from) ? `this level's own version of “${Library.find(p.from).name}”` : 'this level’s own pattern (not linked)',
