@@ -18,7 +18,7 @@ const Curves = {
         <span class="cv-body"><select id="cvTarget" aria-label="What the curve shapes"></select>
         <span class="cv-params" role="group" aria-label="Curve"></span>
         <button data-cv="clear" class="danger" title="Remove every point of this curve">Clear curve</button>
-        <span class="hint cv-help" title="Click to add a point · drag to move · double-click to delete · right-click: smooth / straight to the next point. A loop repeats its curves each time round.">ⓘ how</span></span>
+        <span class="hint cv-help" title="Click to add a point · drag to move (hold Shift: up and down only) · double-click to delete · right-click: smooth / straight to the next point. A loop repeats its curves each time round.">ⓘ how</span></span>
       </div>
       <canvas id="cvCanvas" aria-label="Curve editor"></canvas>`;
     this.el = el;
@@ -139,7 +139,7 @@ const Curves = {
       return;
     }
     const q = App.snap || 1, pt = this.drag.pt;
-    pt.s = clamp(Math.round(this.sOf(c.x) / q) * q, 0, this.steps());
+    if (!e.shiftKey) pt.s = clamp(Math.round(this.sOf(c.x) / q) * q, 0, this.steps());   // Shift: up and down only
     pt.v = this.vOf(c.y);
     this.points().sort((a, b) => a.s - b.s);
     this.draw();
