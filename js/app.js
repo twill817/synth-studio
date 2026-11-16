@@ -280,8 +280,8 @@ function ensurePattern(pat, song = App.song) {
 }
 function ensureAll(song = App.song) { song.patterns.forEach((p) => ensurePattern(p, song)); }
 
-/* An instrument added to a track that was duplicated from another one: copy the beats (or notes) and
-   layer of the instrument in this track that plays the original (or the original's original).
+/* An instrument added to a track that was duplicated from another one: copy the beats (or notes),
+   curves and layer of the instrument in this track that plays the original (or the original's original).
    Returns that source lane, or null when the track has none. */
 function copyPartsFromOriginal(song, p, t) {
   let fromId = (App.role(t.role) || {}).from, src = null;
@@ -294,7 +294,9 @@ function copyPartsFromOriginal(song, p, t) {
   if (!src) return null;
   if (t.type === 'drum') p.drums[t.id] = clone(p.drums[src.id] || {});
   else p.notes[t.id] = clone(p.notes[src.id] || []);
-  partOf(p, t).layer = partOf(p, src).layer;
+  const x = partOf(p, t), y = partOf(p, src);
+  x.layer = y.layer;
+  if (y.curves && Object.keys(y.curves).length) x.curves = clone(y.curves); else delete x.curves;   // its curves in this track too
   ensurePattern(p, song);
   return src;
 }

@@ -294,7 +294,7 @@ const UI = {
       Engine.sync(); this.renderAll(); App.changed();
       this.followTrackView(t);
       if (kind === 'new') toast(`Added the instrument “${role.name}” to the Library`);
-      else if (src) toast(`“${t.name}” plays the same ${t.type === 'drum' ? 'beats' : 'notes'} as “${src.name}” in “${p.name}” — change them freely`, 3500);
+      else if (src) toast(`“${t.name}” plays the same ${t.type === 'drum' ? 'beats' : 'notes'}${hasCurves(partOf(p, t).curves) ? ' and curves' : ''} as “${src.name}” in “${p.name}” — change them freely`, 3500);
     };
     this.initScores();
     const tl = $('#trackList');
