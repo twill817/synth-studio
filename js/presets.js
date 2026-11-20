@@ -34,9 +34,38 @@ const SYNTH_PRESETS = {
   pluck:   { name: 'Pluck',          o1: 'sawtooth', o2: 'square',   o2semi: 12,  detune: 4,  mix: 0.25, a: 0.001, d: 0.28, s: 0.0, r: 0.25, cut: 500,  res: 2,   env: 4.0, fdec: 0.14, oct: 0,  lfoRate: 5, lfoDepth: 0,  gain: 0.9, gm: 45 },
   bell:    { name: 'Bell',           o1: 'sine',     o2: 'sine',     o2semi: 19,  detune: 8,  mix: 0.4,  a: 0.001, d: 2.2, s: 0.0,  r: 1.5,  cut: 8000, res: 0.2, env: 0,   fdec: 0.1,  oct: 1,  lfoRate: 5, lfoDepth: 0,  gain: 0.8, gm: 14 },
   brass:   { name: 'Synth Brass',    o1: 'sawtooth', o2: 'sawtooth', o2semi: 0,   detune: 10, mix: 0.5,  a: 0.06,  d: 0.4, s: 0.75, r: 0.25, cut: 900,  res: 1.5, env: 2.0, fdec: 0.35, oct: 0,  lfoRate: 5, lfoDepth: 4,  gain: 0.6, gm: 61 },
+  // horns
+  horn:     { name: 'French Horn',      o1: 'sawtooth', o2: 'triangle', o2semi: 0,   detune: 5,  mix: 0.4,  a: 0.09,  d: 0.5,  s: 0.8,  r: 0.3,  cut: 650,  res: 0.8, env: 1.2, fdec: 0.4,  oct: 0,  lfoRate: 5,   lfoDepth: 3,  gain: 0.9,  gm: 60 },
+  trumpet:  { name: 'Trumpet',          o1: 'sawtooth', o2: 'sawtooth', o2semi: 0,   detune: 4,  mix: 0.3,  a: 0.03,  d: 0.3,  s: 0.8,  r: 0.15, cut: 1500, res: 2,   env: 1.6, fdec: 0.2,  oct: 0,  lfoRate: 5.5, lfoDepth: 7,  gain: 0.6,  gm: 56 },
+  lowbrass: { name: 'Low Brass',        o1: 'sawtooth', o2: 'sawtooth', o2semi: -12, detune: 6,  mix: 0.35, a: 0.07,  d: 0.5,  s: 0.8,  r: 0.25, cut: 500,  res: 1.2, env: 1.8, fdec: 0.35, oct: -1, lfoRate: 5,   lfoDepth: 2,  gain: 1.1,  gm: 57 },
+  // eerie
+  glass:    { name: 'Glass Harmonica',  o1: 'triangle', o2: 'sine',     o2semi: 0,   detune: 7,  mix: 0.5,  a: 0.35,  d: 0.8,  s: 0.9,  r: 1.8,  cut: 3000, res: 0.3, env: 0,   fdec: 0.1,  oct: 1,  lfoRate: 4.5, lfoDepth: 4,  gain: 0.8,  gm: 92 },
+  theremin: { name: 'Theremin',         o1: 'sine',     o2: 'triangle', o2semi: 0,   detune: 0,  mix: 0.2,  a: 0.12,  d: 0.3,  s: 0.95, r: 0.35, cut: 3500, res: 0.3, env: 0,   fdec: 0.1,  oct: 1,  lfoRate: 5.8, lfoDepth: 28, gain: 0.8,  gm: 79 },
+  choir:    { name: 'Ghost Choir',      o1: 'sawtooth', o2: 'sawtooth', o2semi: 0,   detune: 16, mix: 0.5,  a: 0.5,   d: 1.0,  s: 0.85, r: 1.6,  cut: 750,  res: 5,   env: 0.2, fdec: 1.0,  oct: 0,  lfoRate: 5,   lfoDepth: 9,  gain: 0.5,  gm: 52 },
+  musicbox: { name: 'Haunted Music Box', o1: 'sine',    o2: 'sine',     o2semi: 24,  detune: 22, mix: 0.3,  a: 0.001, d: 0.9,  s: 0.0,  r: 0.9,  cut: 7000, res: 0.2, env: 0,   fdec: 0.1,  oct: 1,  lfoRate: 0.7, lfoDepth: 10, gain: 0.9,  gm: 10 },
+  church:   { name: 'Church Organ',     o1: 'square',   o2: 'sawtooth', o2semi: 12,  detune: 4,  mix: 0.4,  a: 0.03,  d: 0.1,  s: 1.0,  r: 0.35, cut: 3500, res: 0.3, env: 0,   fdec: 0.1,  oct: 0,  lfoRate: 5,   lfoDepth: 0,  gain: 0.5,  gm: 19 },
+  drone:    { name: 'Dark Drone',       o1: 'sawtooth', o2: 'square',   o2semi: -12, detune: 18, mix: 0.5,  a: 1.2,   d: 2.0,  s: 0.9,  r: 2.5,  cut: 320,  res: 4,   env: 0.8, fdec: 3.0,  oct: -1, lfoRate: 0.25, lfoDepth: 12, gain: 0.9, gm: 95 },
+  clash:    { name: 'Dissonant Strings', o1: 'sawtooth', o2: 'sawtooth', o2semi: 1,  detune: 9,  mix: 0.35, a: 0.25,  d: 0.6,  s: 0.85, r: 0.8,  cut: 2600, res: 0.6, env: 0.3, fdec: 0.5,  oct: 0,  lfoRate: 6,   lfoDepth: 14, gain: 0.5,  gm: 44 },
+  // heavy metal (their grit comes from Drive: see PRESET_MIX)
+  distgtr:  { name: 'Distorted Guitar', o1: 'sawtooth', o2: 'square',   o2semi: 0,   detune: 6,  mix: 0.4,  a: 0.004, d: 0.6,  s: 0.75, r: 0.12, cut: 2200, res: 1.2, env: 1.0, fdec: 0.3,  oct: -1, lfoRate: 5,   lfoDepth: 0,  gain: 0.8,  gm: 30 },
+  power:    { name: 'Power Chord',      o1: 'sawtooth', o2: 'sawtooth', o2semi: 7,   detune: 5,  mix: 0.45, a: 0.004, d: 0.6,  s: 0.75, r: 0.12, cut: 2000, res: 1.2, env: 1.0, fdec: 0.3,  oct: -1, lfoRate: 5,   lfoDepth: 0,  gain: 0.8,  gm: 30 },
+  chug:     { name: 'Palm-Mute Chug',   o1: 'sawtooth', o2: 'square',   o2semi: 0,   detune: 4,  mix: 0.4,  a: 0.002, d: 0.16, s: 0.0,  r: 0.06, cut: 420,  res: 2.5, env: 2.6, fdec: 0.09, oct: -1, lfoRate: 5,   lfoDepth: 0,  gain: 1.3,  gm: 28 },
+  shred:    { name: 'Metal Lead',       o1: 'sawtooth', o2: 'sawtooth', o2semi: 0,   detune: 8,  mix: 0.5,  a: 0.008, d: 0.4,  s: 0.85, r: 0.2,  cut: 3200, res: 2.5, env: 0.8, fdec: 0.3,  oct: 0,  lfoRate: 6,   lfoDepth: 16, gain: 0.55, gm: 29 },
+  gritbass: { name: 'Metal Bass',       o1: 'sawtooth', o2: 'sawtooth', o2semi: 12,  detune: 3,  mix: 0.25, a: 0.003, d: 0.4,  s: 0.7,  r: 0.1,  cut: 700,  res: 2,   env: 2.0, fdec: 0.15, oct: -1, lfoRate: 5,   lfoDepth: 0,  gain: 1.5,  gm: 34 },
 };
 
-const WAVES = ['sine', 'triangle', 'sawtooth', 'square'];
+/* The mix a new instrument made from a preset starts with, where it differs from the usual
+   (see defaultInstMix): drive = distortion, rev = reverb, dly = echo. */
+const PRESET_MIX = {
+  pad: { rev: 0.35 }, strings: { rev: 0.35 }, pluck: { dly: 0.2 }, lead: { dly: 0.2 },
+  horn: { rev: 0.3 }, lowbrass: { rev: 0.25 },
+  glass: { rev: 0.5 }, theremin: { rev: 0.4, dly: 0.15 }, choir: { rev: 0.5 }, musicbox: { rev: 0.4, dly: 0.2 },
+  church: { rev: 0.5 }, drone: { rev: 0.45 }, clash: { rev: 0.4 },
+  distgtr: { drive: 0.7, rev: 0.12 }, power: { drive: 0.75, rev: 0.12 }, chug: { drive: 0.65, rev: 0.06, dly: 0 },
+  shred: { drive: 0.55, dly: 0.2 }, gritbass: { drive: 0.4, rev: 0.05, dly: 0 },
+};
+
+const WAVES =['sine', 'triangle', 'sawtooth', 'square'];
 
 const SCALES = {
   major:      { name: 'Major',          steps: [0, 2, 4, 5, 7, 9, 11] },

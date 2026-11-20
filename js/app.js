@@ -55,10 +55,9 @@ function makeRole(kind, name, style = App.project.style) {
 /* An instrument's (role's) default mix: what a new track playing it starts with. */
 const INST_MIX_KEYS = ['vol', 'pan', 'drive', 'tone', 'rev', 'dly'];
 function defaultInstMix(role) {
-  const pre = role.preset || '';
-  return { vol: role.type === 'drum' ? 0.85 : 0.75, pan: 0, drive: 0, tone: 20000,
-    rev: role.type === 'drum' ? 0.08 : pre === 'pad' || pre === 'strings' ? 0.35 : 0.18,
-    dly: pre === 'pluck' || pre === 'lead' ? 0.2 : role.type === 'drum' ? 0 : 0.05 };
+  const drum = role.type === 'drum';
+  return { vol: drum ? 0.85 : 0.75, pan: 0, drive: 0, tone: 20000, rev: drum ? 0.08 : 0.18, dly: drum ? 0 : 0.05,
+    ...(drum ? {} : PRESET_MIX[role.preset]) };
 }
 function roleOf(t) { return App.project.style.roles.find((r) => r.id === t.role); }
 /* The sound a track actually plays: its per-score override, else its role. Edits go to this object. */
